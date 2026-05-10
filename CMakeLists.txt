@@ -6,8 +6,17 @@ project(sendspin-client)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 
-# Add the sendspin-cpp submodule
+# Add the sendspin-cpp submodule with client-only configuration
+# Disable roles we don't need to minimize build dependencies
+set(SENDSPIN_ENABLE_PLAYER ON CACHE BOOL "Enable player role" FORCE)
+set(SENDSPIN_ENABLE_CONTROLLER ON CACHE BOOL "Enable controller role" FORCE)
+set(SENDSPIN_ENABLE_METADATA ON CACHE BOOL "Enable metadata role" FORCE)
+set(SENDSPIN_ENABLE_COLOR OFF CACHE BOOL "Disable color role" FORCE)
+set(SENDSPIN_ENABLE_ARTWORK OFF CACHE BOOL "Disable artwork role" FORCE)
+set(SENDSPIN_ENABLE_VISUALIZER OFF CACHE BOOL "Disable visualizer role" FORCE)
+
 add_subdirectory(sendspin-cpp)
+=======
 
 # Find PortAudio for audio playback
 find_package(PkgConfig QUIET)
