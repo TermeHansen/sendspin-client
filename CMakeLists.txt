@@ -15,6 +15,9 @@ set(SENDSPIN_ENABLE_COLOR OFF CACHE BOOL "Disable color role" FORCE)
 set(SENDSPIN_ENABLE_ARTWORK OFF CACHE BOOL "Disable artwork role" FORCE)
 set(SENDSPIN_ENABLE_VISUALIZER OFF CACHE BOOL "Disable visualizer role" FORCE)
 
+# Disable building examples when using as submodule
+set(BUILD_EXAMPLES OFF CACHE BOOL "Disable building sendspin-cpp examples" FORCE)
+
 add_subdirectory(sendspin-cpp)
 =======
 
