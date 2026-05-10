@@ -97,18 +97,6 @@ The client is built on top of the sendspin-cpp library and extends it with:
 
 This project is licensed under the **Apache License 2.0**, matching the sendspin-cpp library license for full compatibility.
 
-- **Main License**: `LICENSE` (Apache 2.0)
-- **Submodule License**: sendspin-cpp remains under Apache 2.0
-- **Compatibility**: Fully compatible for distribution and integration
-
-### License Files
-
-- `LICENSE`: Apache License 2.0 (main license)
-- `LICENSE-GPLv3`: Previous GPLv3 license (for reference)
-- `LICENSE-APACHE`: Additional copy of Apache 2.0 license
-
-All source files include the appropriate Apache 2.0 copyright headers.
-
 ## Configuration
 
 The SendSpin client supports both command-line arguments and configuration files for flexible deployment.
