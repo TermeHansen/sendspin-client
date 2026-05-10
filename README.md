@@ -95,41 +95,86 @@ The client is built on top of the sendspin-cpp library and extends it with:
 
 ## License
 
-**IMPORTANT LICENSE NOTICE**: This project currently has a license compatibility issue.
+This project is licensed under the **Apache License 2.0**, matching the sendspin-cpp library license for full compatibility.
 
-The sendspin-cpp library (included as a submodule) is licensed under **Apache License 2.0**, but this project is currently licensed under **GPLv3**. These licenses are not directly compatible, which may cause issues for distribution and integration.
+- **Main License**: `LICENSE` (Apache 2.0)
+- **Submodule License**: sendspin-cpp remains under Apache 2.0
+- **Compatibility**: Fully compatible for distribution and integration
 
-### Recommended Action
+### License Files
 
-You should **change this project's license to Apache 2.0** to match the sendspin-cpp library. I've created a `LICENSE-APACHE` file for you that contains the full Apache License 2.0 text.
+- `LICENSE`: Apache License 2.0 (main license)
+- `LICENSE-GPLv3`: Previous GPLv3 license (for reference)
+- `LICENSE-APACHE`: Additional copy of Apache 2.0 license
 
-To fix the license issue:
+All source files include the appropriate Apache 2.0 copyright headers.
 
-1. **Replace the current LICENSE file**:
-   ```bash
-   mv LICENSE LICENSE-GPLv3  # Keep old license as reference
-   mv LICENSE-APACHE LICENSE  # Make Apache 2.0 the main license
-   ```
+## Configuration
 
-2. **Update all source files** to include the Apache 2.0 header instead of GPLv3
+The SendSpin client supports both command-line arguments and configuration files for flexible deployment.
 
-3. **Update this README** to reflect the Apache 2.0 license
+### Configuration File
 
-### License Files Provided
+Create `/etc/sendspin-client/sendspin-client.conf` with your settings:
 
-- `LICENSE`: Currently GPLv3 (should be replaced with Apache 2.0)
-- `LICENSE-APACHE`: Apache License 2.0 (ready to use as main license)
-- `LICENSE-GPLv3`: Will contain the old GPLv3 license after replacement (for reference)
+```conf
+# Friendly name
+FRIENDLY_NAME = "My SendSpin Client"
 
-### Why Apache 2.0 is Recommended
+# Audio device
+AUDIO_DEVICE = 1
 
-1. **Compatibility**: Matches the sendspin-cpp library license
-2. **Permissive**: Allows broader use in commercial and open-source projects
-3. **Industry Standard**: Widely used in the audio/streaming industry
-4. **No Copyleft Conflicts**: Avoids GPL's viral licensing requirements
+# ALSA mixer for hardware volume
+ALSA_MIXER_SPEC = "1:Digital"
 
-The sendspin-cpp submodule remains under its original Apache 2.0 license regardless of this project's license choice.
-=======
+# Log level
+LOG_LEVEL = "info"
+```
+
+### Command-Line Usage
+
+```bash
+# Use config file
+./sendspin-client
+
+# Override with command-line
+./sendspin-client -d 2 "Custom Name"
+
+# Specify custom config file
+./sendspin-client -c /path/to/config.conf
+```
+
+See `CONFIGURATION.md` for complete configuration documentation.
+
+## Debian Packaging
+
+This project includes complete Debian packaging for easy distribution:
+
+### Build the Package
+
+```bash
+mkdir -p build && cd build
+cmake .. -DBUILD_EXAMPLES=OFF -DCMAKE_BUILD_TYPE=Release
+make
+dpkg-buildpackage -us -uc
+```
+
+### Install the Package
+
+```bash
+sudo dpkg -i ../sendspin-client_*.deb
+sudo apt --fix-broken install
+```
+
+### Systemd Service
+
+```bash
+sudo systemctl enable sendspin-client
+sudo systemctl start sendspin-client
+sudo systemctl status sendspin-client
+```
+
+See `PACKAGING.md` and `CI_CD_GUIDE.md` for complete packaging and CI/CD documentation.
 
 ## Contributing
 
@@ -138,4 +183,3 @@ Contributions are welcome! Please open issues for bugs and feature requests, and
 ## Support
 
 For support, please open a GitHub issue or check the [SendSpin documentation](https://sendspin.com/docs).
-=======
