@@ -1,5 +1,4 @@
 // Copyright 2026 TermeHansen
-=======
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
 // you may not use this file except in compliance with the License.
@@ -12,7 +11,6 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-=======
 
 /// @file Host example application for sendspin-cpp.
 ///
@@ -36,6 +34,7 @@
 #include "sendspin/client.h"
 #include "sendspin/controller_role.h"
 #include "sendspin/metadata_role.h"
+#include "sendspin/player_role.h"
 #include "sendspin/player_role.h"
 #ifdef SENDSPIN_HAS_PORTAUDIO
 #include "portaudio_sink.h"
@@ -241,7 +240,7 @@ int main(int argc, char* argv[]) {
     SendspinClient client(std::move(config));
 
     // Add roles
-    PlayerRole::Config player_config;
+    PlayerRoleConfig player_config;
     
     // Dynamically determine supported audio formats based on device capabilities
     int device_to_check = audio_device_index >= 0 ? audio_device_index : Pa_GetDefaultOutputDevice();
