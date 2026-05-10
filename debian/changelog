@@ -1,0 +1,9 @@
+sendspin-client (0.1.0-1) unstable; urgency=medium
+
+  * Initial release
+  * Based on sendspin-cpp v0.4.0
+  * Enhanced PortAudio support with ALSA hardware volume control
+  * Systemd service integration
+
+ -- TermeHansen <terme@hansen>  $(date -R)
+

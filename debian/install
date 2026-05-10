@@ -1,0 +1,13 @@
+#!/bin/sh
+
+# Install systemd service
+if [ -d debian/sendspin-client/lib/systemd/system ]; then
+    echo "Installing systemd service..."
+    cp debian/sendspin-client/lib/systemd/system/sendspin-client.service debian/sendspin-client/lib/systemd/system/
+fi
+
+# Install configuration
+if [ -d debian/sendspin-client/etc ]; then
+    echo "Installing configuration..."
+    cp debian/sendspin-client/etc/sendspin-client/sendspin-client.conf debian/sendspin-client/etc/sendspin-client/
+fi

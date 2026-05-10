@@ -1,0 +1,24 @@
+[Unit]
+Description=SendSpin Client Service
+After=network.target sound.target
+Requires=network.target
+
+[Service]
+Type=simple
+User=sendspin
+Group=audio
+ExecStart=/usr/local/bin/sendspin-client "SendSpin Client Service"
+Restart=on-failure
+RestartSec=5s
+Environment="PULSE_CLIENT=sendspin-client"
+
+# Audio device permissions
+SupplementaryGroups=audio,pulse,pulse-access
+
+# Performance settings
+Nice=-10
+IOSchedulingClass=realtime
+IOSchedulingPriority=2
+
+[Install]
+WantedBy=multi-user.target

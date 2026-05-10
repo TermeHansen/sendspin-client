@@ -1,0 +1,22 @@
+Source: sendspin-client
+Section: sound
+Priority: optional
+Maintainer: TermeHansen <terme@hansen>
+Build-Depends: debhelper (>= 11), cmake (>= 3.10), libportaudio2, portaudio19-dev, libavahi-compat-libdnssd-dev
+Standards-Version: 4.5.0
+Homepage: https://github.com/TermeHansen/sendspin-client
+
+Package: sendspin-client
+Architecture: any
+Depends: ${shlibs:Depends}, ${misc:Depends}, libportaudio2, libasound2, avahi-daemon
+Description: SendSpin Client with enhanced audio features
+ This package provides a feature-rich SendSpin client implementation with:
+  - Full SendSpin protocol support
+  - Enhanced PortAudio integration with device selection
+  - ALSA hardware volume control
+  - Automatic audio format detection and negotiation
+  - mDNS service advertisement for easy discovery
+  - Cross-platform support (Linux, macOS, Windows)
+ .
+ The client supports multiple audio formats including FLAC, OPUS, and PCM,
+ and provides both software and hardware volume control options.
