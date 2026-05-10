@@ -30,6 +30,7 @@ endif()
 add_executable(sendspin-client
     src/main.cpp
     src/common/portaudio_sink.cpp
+    src/config_parser.cpp
 )
 
 # Link against the sendspin library
@@ -62,3 +63,18 @@ target_include_directories(sendspin-client PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/sendspin-cpp/include
     ${CMAKE_CURRENT_SOURCE_DIR}/src/common
 )
+
+# CPack configuration for Debian package
+set(CPACK_GENERATOR "DEB")
+set(CPACK_DEBIAN_PACKAGE_NAME "sendspin-client")
+set(CPACK_DEBIAN_PACKAGE_VERSION "0.1.0")
+set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
+set(CPACK_DEBIAN_PACKAGE_MAINTAINER "TermeHansen")
+set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "SendSpin Client - Enhanced audio streaming client with ALSA hardware control")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "libportaudio2, libasound2, avahi-daemon")
+set(CPACK_DEBIAN_PACKAGE_SECTION "sound")
+set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
+set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/TermeHansen/sendspin-client")
+
+# Include CPack module
+include(CPack)

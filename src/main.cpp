@@ -47,11 +47,13 @@
 #include <arpa/inet.h>
 
 #include <atomic>
+#include "config_parser.h"
 #include <chrono>
 #include <csignal>
 #include <cstdio>
 #include <cstring>
 #include <string>
+#include <unistd.h>  // for access()
 #include <thread>
 
 using namespace sendspin;
@@ -132,6 +134,7 @@ static void print_usage(const char* prog) {
     fprintf(stderr, "  -L            List available audio devices and exit\n");
     fprintf(stderr, "  -d DEVICE     Select audio device by index (use -L to list devices)\n");
     fprintf(stderr, "  -m MIXER      Use ALSA hardware mixer for volume control (format: card:control, e.g., \"1:Digital\")\n");
+    fprintf(stderr, "  -c FILE       Use configuration file (default: /etc/sendspin-client/sendspin-client.conf)\n");
     fprintf(stderr, "  -h            Show this help\n");
 }
 
@@ -156,8 +159,9 @@ int main(int argc, char* argv[]) {
     int audio_device_index = -1;
     bool list_devices = false;
     std::string alsa_mixer_spec;
+    std::string config_file;
     int opt;
-    while ((opt = getopt(argc, argv, "u:l:vqhd:m:L")) != -1) {
+    while ((opt = getopt(argc, argv, "u:l:vqhd:m:Lc:")) != -1) {
         switch (opt) {
             case 'u':
                 connect_url = optarg;
@@ -181,6 +185,9 @@ int main(int argc, char* argv[]) {
             case 'm':
                 alsa_mixer_spec = optarg;
                 break;
+            case 'c':
+                config_file = optarg;
+                break;
             case 'L':
                 list_devices = true;
                 break;
@@ -195,7 +202,48 @@ int main(int argc, char* argv[]) {
 
     SendspinClient::set_log_level(log_level);
 
+    // Load configuration from file if specified
+    ConfigParser config_parser;
+    std::string effective_config_file = config_file;
+    
+    // Use default config file if none specified
+    if (effective_config_file.empty()) {
+        effective_config_file = "/etc/sendspin-client/sendspin-client.conf";
+    }
+    
+    // Try to load the configuration file
+    if (!config_file.empty() || access(effective_config_file.c_str(), R_OK) == 0) {
+        if (config_parser.parse(effective_config_file)) {
+            fprintf(stderr, "Loaded configuration from %s\n", effective_config_file.c_str());
+            
+            // Override command-line options with config file values if not specified
+            if (connect_url.empty() && config_parser.has_key("CONNECT_URL")) {
+                connect_url = config_parser.get_string("CONNECT_URL");
+            }
+            
+            if (audio_device_index == -1 && config_parser.has_key("AUDIO_DEVICE")) {
+                audio_device_index = config_parser.get_int("AUDIO_DEVICE", -1);
+            }
+            
+            if (alsa_mixer_spec.empty() && config_parser.has_key("ALSA_MIXER_SPEC")) {
+                alsa_mixer_spec = config_parser.get_string("ALSA_MIXER_SPEC");
+            }
+            
+            // Set log level from config if not specified on command line
+            if (optind == 1) {  // No command-line options were specified
+                std::string log_level_str = config_parser.get_string("LOG_LEVEL", "info");
+                if (!parse_log_level(log_level_str.c_str(), log_level)) {
+                    fprintf(stderr, "Warning: Unknown log level in config: %s\n", log_level_str.c_str());
+                }
+                SendspinClient::set_log_level(log_level);
+            }
+        } else {
+            fprintf(stderr, "Warning: Could not read configuration file %s\n", effective_config_file.c_str());
+        }
+    }
+
     // Handle device listing request
+
 #ifdef SENDSPIN_HAS_PORTAUDIO
     if (list_devices) {
         // Initialize PortAudio just to list devices
