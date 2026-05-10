@@ -1,0 +1,95 @@
+name: Build Debian Package
+
+on:
+  push:
+    branches: [ main ]
+    paths-ignore:
+      - '**.md'
+      - 'LICENSE*'
+      - '.gitignore'
+  pull_request:
+    branches: [ main ]
+  release:
+    types: [published]
+
+env:
+  DEB_PACKAGE_NAME: sendspin-client
+  DEB_VERSION: 0.1.0
+
+jobs:
+  build-debian-package:
+    name: Build Debian Package
+    runs-on: ubuntu-20.04
+    
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          build-essential \
+          debhelper \
+          devscripts \
+          dh-make \
+          cmake \
+          libportaudio2 \
+          portaudio19-dev \
+          libavahi-compat-libdnssd-dev \
+          git \
+          patch \
+          lintian
+
+    - name: Apply disable-examples patch
+      run: |
+        cd sendspin-cpp
+        patch -p1 < ../disable-examples.patch
+        cd ..
+
+    - name: Configure CMake
+      run: |
+        mkdir -p build
+        cd build
+        cmake .. \
+          -DBUILD_EXAMPLES=OFF \
+          -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=/usr
+
+    - name: Build project
+      run: cd build && make -j$(nproc)
+
+    - name: Build Debian package
+      run: |
+        cd build
+        cpack -G DEB
+        ls -la *.deb
+
+    - name: Lint Debian package
+      run: lintian ../*.deb || true  # Don't fail on lintian warnings
+
+    - name: Upload Debian package artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: debian-package
+        path: build/*.deb
+        retention-days: 7
+
+    - name: Create Release on Tag Push
+      if: github.event_name == 'push' && contains(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: build/*.deb
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Show package info
+      run: |
+        echo "=== Built Debian Package ==="
+        ls -la build/*.deb
+        echo ""
+        echo "=== Package Contents ==="
+        dpkg -c build/*.deb

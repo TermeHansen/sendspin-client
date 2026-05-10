@@ -1,0 +1,124 @@
+# SendSpin Client Configuration File
+# ====================================
+#
+# This file configures the SendSpin client behavior.
+# Lines starting with '#' are comments and are ignored.
+# Format: KEY = value  (or KEY = "quoted value")
+#
+# Default location: /etc/sendspin-client/sendspin-client.conf
+# Can be overridden with: sendspin-client -c /path/to/config.conf
+
+
+# ====================================
+# BASIC SETTINGS
+# ====================================
+
+# Friendly name for this client (shown to other devices on the network)
+# Default: "SendSpin Client"
+# FRIENDLY_NAME = "My SendSpin Client"
+
+# Audio device index to use
+# -1 = use default device
+# Use -L flag to list available devices
+# Default: -1
+# AUDIO_DEVICE = -1
+
+# ALSA mixer specification for hardware volume control
+# Format: "card:control" (e.g., "1:Digital" for card 1, Digital control)
+# Leave empty to disable hardware volume control
+# Default: "" (empty)
+# ALSA_MIXER_SPEC = "1:Digital"
+
+
+# ====================================
+# NETWORK SETTINGS
+# ====================================
+
+# WebSocket URL to connect to
+# If empty, the client will listen for incoming connections (server mode)
+# Format: ws://host:port/path
+# Example: ws://192.168.1.100:8928/sendspin
+# Default: "" (empty - listen mode)
+# CONNECT_URL = ""
+
+# Enable mDNS/zeroconf service advertisement
+# Set to false to disable automatic discovery
+# Default: true
+# ENABLE_MDNS = true
+
+
+# ====================================
+# LOGGING
+# ====================================
+
+# Log level: none, error, warn, info, debug, verbose
+# Default: info
+# LOG_LEVEL = info
+
+
+# ====================================
+# ADVANCED SETTINGS
+# ====================================
+
+# Audio buffer size in milliseconds
+# Larger values prevent underruns but increase latency
+# Default: 200
+# AUDIO_BUFFER_MS = 200
+
+# Enable/disable automatic format detection
+# When true, client automatically detects supported audio formats
+# When false, uses predefined format list
+# Default: true
+# AUTO_DETECT_FORMATS = true
+
+# Predefined audio formats (used when AUTO_DETECT_FORMATS = false)
+# Format: format1,format2,format3
+# Supported: FLAC, OPUS, PCM
+# Example: FLAC,OPUS,PCM
+# AUDIO_FORMATS = FLAC,OPUS,PCM
+
+
+# ====================================
+# EXAMPLE CONFIGURATIONS
+# ====================================
+
+# Raspberry Pi with HDMI audio:
+# FRIENDLY_NAME = "Raspberry Pi HDMI"
+# AUDIO_DEVICE = 0
+# LOG_LEVEL = debug
+
+# USB Audio Interface:
+# FRIENDLY_NAME = "USB Audio Client"
+# AUDIO_DEVICE = 1
+# ALSA_MIXER_SPEC = "1:PCM"
+# LOG_LEVEL = info
+
+# Development/Testing:
+# FRIENDLY_NAME = "Dev Client"
+# LOG_LEVEL = verbose
+# CONNECT_URL = "ws://localhost:8928/sendspin"
+
+
+# ====================================
+# TROUBLESHOOTING
+# ====================================
+
+# If you experience audio issues:
+# 1. Check device index with: sendspin-client -L
+# 2. Try different audio devices
+# 3. Check ALSA mixer settings with: alsamixer
+# 4. Increase AUDIO_BUFFER_MS for stability
+
+# If mDNS discovery doesn't work:
+# 1. Check ENABLE_MDNS = true
+# 2. Verify avahi-daemon is running: sudo systemctl status avahi-daemon
+# 3. Check firewall settings
+
+# For more help, see: man sendspin-client or sendspin-client -h
+
+
+# ====================================
+# END OF CONFIGURATION
+# ====================================
+# After making changes, restart the service:
+# sudo systemctl restart sendspin-client
