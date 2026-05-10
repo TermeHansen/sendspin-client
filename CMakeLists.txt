@@ -19,7 +19,6 @@ set(SENDSPIN_ENABLE_VISUALIZER OFF CACHE BOOL "Disable visualizer role" FORCE)
 set(BUILD_EXAMPLES OFF CACHE BOOL "Disable building sendspin-cpp examples" FORCE)
 
 add_subdirectory(sendspin-cpp)
-=======
 
 # Find PortAudio for audio playback
 find_package(PkgConfig QUIET)

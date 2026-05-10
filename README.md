@@ -28,7 +28,6 @@ A feature-rich SendSpin client implementation based on the [sendspin-cpp](https:
 ```bash
 # Clone with submodules
 git clone --recursive https://github.com/TermeHansen/sendspin-client.git
-=======
 cd sendspin-client
 
 # Or if you already cloned without --recursive:
