@@ -55,6 +55,7 @@
 #include <string>
 #include <unistd.h>  // for access()
 #include <thread>
+#include "utils.h"
 
 using namespace sendspin;
 
@@ -261,9 +262,13 @@ int main(int argc, char* argv[]) {
     // Optional name from remaining arguments
     std::string friendly_name = (optind < argc) ? argv[optind] : "Basic Client";
 
+    // Generate unique client ID based on friendly name and hardware info
+    std::string client_id = generate_client_id(friendly_name);
+    fprintf(stderr, "Generated client ID: %s\n", client_id.c_str());
+
     // Configure the client
     SendspinClientConfig config;
-    config.client_id = "basic-client-example";
+    config.client_id = client_id;
     config.name = friendly_name;
     config.product_name = "sendspin-cpp host example";
     config.manufacturer = "sendspin-cpp";

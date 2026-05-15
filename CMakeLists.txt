@@ -31,6 +31,7 @@ add_executable(sendspin-client
     src/main.cpp
     src/common/portaudio_sink.cpp
     src/config_parser.cpp
+    src/utils.cpp
 )
 
 # Link against the sendspin library
