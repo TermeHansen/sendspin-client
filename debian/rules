@@ -6,20 +6,16 @@
 override_dh_auto_configure:
 	dh_auto_configure -- \
 		-DBUILD_EXAMPLES=OFF \
-		-DCMAKE_BUILD_TYPE=Release
+		-DCMAKE_BUILD_TYPE=Release \
+		-DFETCHCONTENT_FULLY_DISCONNECTED=OFF
 
 override_dh_auto_install:
 	dh_auto_install
-	# Install the binary
+	# Install additional files manually
 	mkdir -p debian/sendspin-client/usr/bin
-	cp build/sendspin-client debian/sendspin-client/usr/bin/
-	# Install the systemd service
+	cp obj-x86_64-linux-gnu/sendspin-client debian/sendspin-client/usr/bin/
 	mkdir -p debian/sendspin-client/lib/systemd/system
 	cp debian/sendspin-client.service debian/sendspin-client/lib/systemd/system/
-	# Install configuration
 	mkdir -p debian/sendspin-client/etc/sendspin-client
 	cp debian/sendspin-client.conf debian/sendspin-client/etc/sendspin-client/
 	cp debian/sendspin-client.conf.example debian/sendspin-client/etc/sendspin-client/
-
-override_dh_install:
-	dh_install --list-missing
