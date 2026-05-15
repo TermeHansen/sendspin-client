@@ -7,7 +7,7 @@ Requires=network.target
 Type=simple
 User=sendspin
 Group=audio
-ExecStart=/usr/local/bin/sendspin-client "SendSpin Client Service"
+ExecStart=/usr/bin/sendspin-client "SendSpin Client Service"
 Restart=on-failure
 RestartSec=5s
 Environment="PULSE_CLIENT=sendspin-client"

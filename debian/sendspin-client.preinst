@@ -1,0 +1,11 @@
+#!/bin/sh
+set -e
+
+# Create sendspin user if it doesn't exist
+if ! id -u sendspin >/dev/null 2>&1; then
+    echo "Creating sendspin system user..."
+    adduser --system --group --no-create-home --disabled-login --disabled-password sendspin || true
+fi
+
+# Exit successfully
+exit 0
