@@ -5,5 +5,5 @@ sendspin-client (0.1.0-1) unstable; urgency=medium
   * Enhanced PortAudio support with ALSA hardware volume control
   * Systemd service integration
 
- -- TermeHansen <terme@hansen>  $(date -R)
+ -- TermeHansen <terme@hansen>  Wed, 15 May 2024 22:55:00 +0000
 

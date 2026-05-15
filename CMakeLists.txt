@@ -69,7 +69,26 @@ target_include_directories(sendspin-client PRIVATE
 set(CPACK_GENERATOR "DEB")
 set(CPACK_DEBIAN_PACKAGE_NAME "sendspin-client")
 set(CPACK_DEBIAN_PACKAGE_VERSION "0.1.0")
-set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
+# Use the actual build architecture instead of hardcoding
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm" OR CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
+    if(CMAKE_SIZEOF_VOID_P EQUAL 8)
+        set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "arm64")
+    else()
+        set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "armhf")
+    endif()
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64" OR CMAKE_SYSTEM_PROCESSOR MATCHES "AMD64")
+    set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
+elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "i.86")
+    set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "i386")
+else()
+    # Fallback to dpkg-architecture if available
+    execute_process(COMMAND dpkg-architecture -qDEB_HOST_ARCH
+                    OUTPUT_VARIABLE CPACK_DEBIAN_PACKAGE_ARCHITECTURE
+                    OUTPUT_STRIP_TRAILING_WHITESPACE)
+    if(NOT CPACK_DEBIAN_PACKAGE_ARCHITECTURE)
+        set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "amd64")
+    endif()
+endif()
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "TermeHansen")
 set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "SendSpin Client - Enhanced audio streaming client with ALSA hardware control")
 set(CPACK_DEBIAN_PACKAGE_DEPENDS "libportaudio2, libasound2, avahi-daemon")

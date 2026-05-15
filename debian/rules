@@ -13,7 +13,7 @@ override_dh_auto_install:
 	dh_auto_install
 	# Install additional files manually
 	mkdir -p debian/sendspin-client/usr/bin
-	cp obj-x86_64-linux-gnu/sendspin-client debian/sendspin-client/usr/bin/
+	cp obj-$(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)/sendspin-client debian/sendspin-client/usr/bin/
 	mkdir -p debian/sendspin-client/lib/systemd/system
 	cp debian/sendspin-client.service debian/sendspin-client/lib/systemd/system/
 	mkdir -p debian/sendspin-client/etc/sendspin-client
