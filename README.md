@@ -19,7 +19,7 @@ A feature-rich SendSpin client implementation based on the [sendspin-cpp](https:
 - [sendspin-cpp](https://github.com/Sendspin/sendspin-cpp) (included as submodule)
 
 ### Optional Dependencies
-- **PortAudio** (for audio playback): `libportaudio2` and 'portaudio19-dev' development headers
+- **PortAudio** (for audio playback): `libportaudio2` and `portaudio19-dev` development headers
 - **ALSA** (for hardware volume control on Linux): `libasound2-dev`
 - **Avahi/mDNS** (for zeroconf discovery on Linux): `libavahi-compat-libdnssd-dev`
 
