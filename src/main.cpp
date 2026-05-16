@@ -243,6 +243,15 @@ int main(int argc, char* argv[]) {
         }
     }
 
+    // Get friendly name from config file if available
+    std::string friendly_name = "Basic Client";
+    if (config_parser.has_key("FRIENDLY_NAME")) {
+        friendly_name = config_parser.get_string("FRIENDLY_NAME", "Basic Client");
+    } else if (optind < argc) {
+        // Use command-line argument if provided
+        friendly_name = argv[optind];
+    }
+
     // Handle device listing request
 
 #ifdef SENDSPIN_HAS_PORTAUDIO
@@ -258,9 +267,6 @@ int main(int argc, char* argv[]) {
         return 0;
     }
 #endif
-
-    // Optional name from remaining arguments
-    std::string friendly_name = (optind < argc) ? argv[optind] : "Basic Client";
 
     // Generate unique client ID based on friendly name and hardware info
     std::string client_id = generate_client_id(friendly_name);

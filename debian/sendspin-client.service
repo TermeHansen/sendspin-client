@@ -6,14 +6,13 @@ Requires=network.target
 [Service]
 Type=simple
 User=sendspin
-Group=audio
 ExecStart=/usr/bin/sendspin-client "SendSpin Client Service"
 Restart=on-failure
 RestartSec=5s
 Environment="PULSE_CLIENT=sendspin-client"
 
-# Audio device permissions
-SupplementaryGroups=audio,pulse,pulse-access
+# Audio device permissions are handled by user group membership
+# The preinst script adds sendspin user to: audio, pulse, pulse-access
 
 # Performance settings
 Nice=-10

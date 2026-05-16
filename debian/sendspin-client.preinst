@@ -7,5 +7,25 @@ if ! id -u sendspin >/dev/null 2>&1; then
     adduser --system --group --no-create-home --disabled-login --disabled-password sendspin || true
 fi
 
+# Add sendspin user to necessary groups for audio access
+# Check if groups exist before adding user to them
+if id -u sendspin >/dev/null 2>&1; then
+    echo "Adding sendspin user to audio groups..."
+    
+    # Add to audio group (should exist on all Linux systems)
+    if getent group audio >/dev/null; then
+        usermod -a -G audio sendspin || true
+    fi
+    
+    # Add to pulse groups if they exist (may not exist on all systems)
+    if getent group pulse >/dev/null; then
+        usermod -a -G pulse sendspin || true
+    fi
+    
+    if getent group pulse-access >/dev/null; then
+        usermod -a -G pulse-access sendspin || true
+    fi
+fi
+
 # Exit successfully
 exit 0
