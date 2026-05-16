@@ -1,4 +1,4 @@
-name: Build Debian Package
+name: Build ARMHF Debian Package
 
 on:
   workflow_dispatch:  # Allow manual triggering
@@ -8,11 +8,13 @@ on:
 env:
   DEB_PACKAGE_NAME: sendspin-client
   DEB_VERSION: 0.1.0
+  TARGET_ARCH: armhf
+  TARGET_DISTRO: trixie
 
 jobs:
-  build-debian-package:
-    name: Build Debian Package
-    runs-on: ubuntu-20.04
+  build-armhf-package:
+    name: Build ARMHF Package
+    runs-on: ubuntu-22.04
     
     steps:
     - name: Checkout repository
@@ -34,7 +36,10 @@ jobs:
           libavahi-compat-libdnssd-dev \
           git \
           patch \
-          lintian
+          lintian \
+          gcc-arm-linux-gnueabihf \
+          g++-arm-linux-gnueabihf \
+          crossbuild-essential-armhf
 
     - name: Apply disable-examples patch
       run: |
@@ -42,37 +47,47 @@ jobs:
         patch -p1 < ../disable-examples.patch
         cd ..
 
-
-
-    - name: Build Debian package
+    - name: Set up cross-compilation environment
       run: |
-        cd ..
-        dpkg-buildpackage -us -uc -b
+        echo "Setting up for ARMHF cross-compilation..."
+        echo "DEB_BUILD_ARCH=armhf" >> $GITHUB_ENV
+        echo "DEB_HOST_ARCH=armhf" >> $GITHUB_ENV
+
+    - name: Build ARMHF Debian package
+      run: |
+        # Set cross-compilation flags
+        export CC=arm-linux-gnueabihf-gcc
+        export CXX=arm-linux-gnueabihf-g++
+        
+        # Build the package
+        dpkg-buildpackage -us -uc -b -aarmhf
+        
+        # Show built packages
         ls -la ../*.deb
 
     - name: Lint Debian package
-      run: lintian ../*.deb || true  # Don't fail on lintian warnings
+      run: lintian ../*_armhf.deb || true  # Don't fail on lintian warnings
 
-    - name: Upload Debian package artifact
+    - name: Upload ARMHF Debian package artifact
       uses: actions/upload-artifact@v3
       with:
-        name: debian-package
-        path: ../*.deb
+        name: debian-package-armhf
+        path: ../*_armhf.deb
         retention-days: 7
 
-    - name: Create Release
+    - name: Create ARMHF Release
       if: github.event_name == 'release'
       uses: softprops/action-gh-release@v1
       with:
-        files: ../*.deb
+        files: ../*_armhf.deb
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Show package info
       run: |
-        echo "=== Built Debian Package ==="
-        ls -la ../*.deb
+        echo "=== Built ARMHF Debian Package ==="
+        ls -la ../*_armhf.deb
         echo ""
         echo "=== Package Contents ==="
-        dpkg -c ../*.deb
+        dpkg -c ../*_armhf.deb
