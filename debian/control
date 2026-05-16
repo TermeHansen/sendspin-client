@@ -8,7 +8,8 @@ Homepage: https://github.com/TermeHansen/sendspin-client
 
 Package: sendspin-client
 Architecture: any
-Depends: ${shlibs:Depends}, ${misc:Depends}, libportaudio2, libasound2, avahi-daemon
+Depends: ${shlibs:Depends}, ${misc:Depends}, libportaudio2, avahi-daemon
+Recommends: libasound2
 Description: SendSpin Client with enhanced audio features
  This package provides a feature-rich SendSpin client implementation with:
   - Full SendSpin protocol support
