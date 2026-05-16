@@ -58,10 +58,10 @@ jobs:
         # Set cross-compilation flags
         export CC=arm-linux-gnueabihf-gcc
         export CXX=arm-linux-gnueabihf-g++
-        
+
         # Build the package
         dpkg-buildpackage -us -uc -b -aarmhf
-        
+
         # Show built packages
         ls -la ../*.deb
 
@@ -69,7 +69,7 @@ jobs:
       run: lintian ../*_armhf.deb || true  # Don't fail on lintian warnings
 
     - name: Upload ARMHF Debian package artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v7
       with:
         name: debian-package-armhf
         path: ../*_armhf.deb
