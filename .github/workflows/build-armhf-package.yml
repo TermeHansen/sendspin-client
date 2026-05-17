@@ -31,15 +31,20 @@ jobs:
           devscripts \
           dh-make \
           cmake \
-          libportaudio2 \
-          portaudio19-dev \
-          libavahi-compat-libdnssd-dev \
           git \
           patch \
           lintian \
           gcc-arm-linux-gnueabihf \
           g++-arm-linux-gnueabihf \
           crossbuild-essential-armhf
+
+    - name: Install ARMHF development libraries
+      run: |
+        sudo apt-get install -y \
+          libportaudio2:armhf \
+          portaudio19-dev:armhf \
+          libavahi-compat-libdnssd-dev:armhf \
+          libasound2-dev:armhf
 
     - name: Apply disable-examples patch
       run: |
@@ -52,6 +57,14 @@ jobs:
         echo "Setting up for ARMHF cross-compilation..."
         echo "DEB_BUILD_ARCH=armhf" >> $GITHUB_ENV
         echo "DEB_HOST_ARCH=armhf" >> $GITHUB_ENV
+        
+        # Set up pkg-config for cross-compilation
+        echo "PKG_CONFIG_PATH=/usr/lib/arm-linux-gnueabihf/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
+        echo "PKG_CONFIG_LIBDIR=/usr/lib/arm-linux-gnueabihf/pkgconfig" >> $GITHUB_ENV
+        
+        # Set up pkg-config to use the cross-compilation toolchain
+        echo "PKG_CONFIG_SYSROOT_DIR=/" >> $GITHUB_ENV
+        echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
 
     - name: Build ARMHF Debian package
       run: |
@@ -60,7 +73,12 @@ jobs:
         export CXX=arm-linux-gnueabihf-g++
         export DEB_BUILD_ARCH=armhf
         export DEB_HOST_ARCH=armhf
-
+        
+        # Set up CMake toolchain for ARMHF
+        export CMAKE_TOOLCHAIN_FILE=/usr/share/cmake-*/Modules/Platform/Linux-GNU-ARM.cmake
+        export CMAKE_SYSTEM_NAME=Linux
+        export CMAKE_SYSTEM_PROCESSOR=arm
+        
         # Build the package with cross-compilation flags
         # Use -d flag to ignore build dependency checks (they're satisfied for host arch)
         dpkg-buildpackage -us -uc -b -aarmhf -d
