@@ -58,9 +58,11 @@ jobs:
         # Set cross-compilation flags
         export CC=arm-linux-gnueabihf-gcc
         export CXX=arm-linux-gnueabihf-g++
+        export DEB_BUILD_ARCH=armhf
+        export DEB_HOST_ARCH=armhf
 
-        # Build the package
-        dpkg-buildpackage -us -uc -b -aarmhf
+        # Build the package with cross-compilation flags
+        dpkg-buildpackage -us -uc -b -aarmhf --host-arch=armhf
 
         # Show built packages
         ls -la ../*.deb
