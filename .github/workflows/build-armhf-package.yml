@@ -8,99 +8,70 @@ on:
 env:
   DEB_PACKAGE_NAME: sendspin-client
   DEB_VERSION: 0.1.0
-  TARGET_ARCH: armhf
-  TARGET_DISTRO: trixie
 
 jobs:
   build-armhf-package:
     name: Build ARMHF Package
-    runs-on: ubuntu-22.04
+    runs-on: self-hosted  # Use Raspberry Pi self-hosted runner
+    
+    # No container needed - building natively on Raspberry Pi
     
     steps:
+    - name: Install build dependencies
+      run: |
+        sudo apt-get update && sudo apt-get install -y \
+          build-essential \
+          debhelper \
+          devscripts \
+          cmake \
+          git \
+          libportaudio2 \
+          portaudio19-dev \
+          libasound2-dev \
+          libavahi-compat-libdnssd-dev \
+          avahi-daemon \
+          lintian
+    
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
         submodules: recursive
-
-    - name: Install build dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential \
-          debhelper \
-          devscripts \
-          dh-make \
-          cmake \
-          git \
-          patch \
-          lintian \
-          gcc-arm-linux-gnueabihf \
-          g++-arm-linux-gnueabihf \
-          crossbuild-essential-armhf
-
-    - name: Install ARMHF development libraries
-      run: |
-        sudo apt-get install -y \
-          libportaudio2:armhf \
-          portaudio19-dev:armhf \
-          libavahi-compat-libdnssd-dev:armhf \
-          libasound2-dev:armhf
-
+    
     - name: Apply disable-examples patch
       run: |
         cd sendspin-cpp
         patch -p1 < ../disable-examples.patch
         cd ..
-
-    - name: Set up cross-compilation environment
+    
+    - name: Build Debian package
       run: |
-        echo "Setting up for ARMHF cross-compilation..."
-        echo "DEB_BUILD_ARCH=armhf" >> $GITHUB_ENV
-        echo "DEB_HOST_ARCH=armhf" >> $GITHUB_ENV
+        # Build using native ARMHF environment
+        fakeroot make -f debian/rules binary
         
-        # Set up pkg-config for cross-compilation
-        echo "PKG_CONFIG_PATH=/usr/lib/arm-linux-gnueabihf/pkgconfig:/usr/share/pkgconfig" >> $GITHUB_ENV
-        echo "PKG_CONFIG_LIBDIR=/usr/lib/arm-linux-gnueabihf/pkgconfig" >> $GITHUB_ENV
-        
-        # Set up pkg-config to use the cross-compilation toolchain
-        echo "PKG_CONFIG_SYSROOT_DIR=/" >> $GITHUB_ENV
-        echo "PKG_CONFIG_ALLOW_CROSS=1" >> $GITHUB_ENV
-
-    - name: Build ARMHF Debian package
-      run: |
-        # Set cross-compilation flags
-        export CC=arm-linux-gnueabihf-gcc
-        export CXX=arm-linux-gnueabihf-g++
-        export DEB_BUILD_ARCH=armhf
-        export DEB_HOST_ARCH=armhf
-        
-        # Set up CMake toolchain for ARMHF
-        export CMAKE_TOOLCHAIN_FILE=/usr/share/cmake-*/Modules/Platform/Linux-GNU-ARM.cmake
-        export CMAKE_SYSTEM_NAME=Linux
-        export CMAKE_SYSTEM_PROCESSOR=arm
-        
-        # Build the package with cross-compilation flags
-        # Use -d flag to ignore build dependency checks (they're satisfied for host arch)
-        dpkg-buildpackage -us -uc -b -aarmhf -d
-
         # Show built packages
         ls -la ../*.deb
-
-    - name: Lint Debian package
-      run: lintian ../*_armhf.deb || true  # Don't fail on lintian warnings
+        
+        # Rename to include architecture and distribution
+        for deb in ../${{ env.DEB_PACKAGE_NAME }}_*.deb; do
+          if [ -f "$deb" ]; then
+            new_name=$(echo "$deb" | sed "s/_${{ env.DEB_VERSION }}-1/_${{ env.DEB_VERSION }}-1_armhf_trixie/")
+            sudo mv "$deb" "$new_name"
+          fi
+        done
+        ls -la ../*.deb
 
     - name: Upload ARMHF Debian package artifact
       uses: actions/upload-artifact@v7
       with:
         name: debian-package-armhf
-        path: ../*_armhf.deb
+        path: ../*.deb
         retention-days: 7
 
     - name: Create ARMHF Release
       if: github.event_name == 'release'
       uses: softprops/action-gh-release@v1
       with:
-        files: ../*_armhf.deb
+        files: ../*.deb
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -108,7 +79,7 @@ jobs:
     - name: Show package info
       run: |
         echo "=== Built ARMHF Debian Package ==="
-        ls -la ../*_armhf.deb
+        ls -la ../*.deb
         echo ""
         echo "=== Package Contents ==="
-        dpkg -c ../*_armhf.deb
+        dpkg -c ../*_armhf_trixie.deb

@@ -12,29 +12,31 @@ env:
 jobs:
   build-debian-package:
     name: Build Debian Package
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-latest
+    
+    container:
+      image: debian:trixie
     
     steps:
+    - name: Install build dependencies
+      run: |
+        apt-get update && apt-get install -y \
+          build-essential \
+          debhelper \
+          devscripts \
+          cmake \
+          git \
+          libportaudio2 \
+          portaudio19-dev \
+          libasound2-dev \
+          libavahi-compat-libdnssd-dev \
+          avahi-daemon \
+          lintian
+
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
         submodules: recursive
-
-    - name: Install build dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y \
-          build-essential \
-          debhelper \
-          devscripts \
-          dh-make \
-          cmake \
-          libportaudio2 \
-          portaudio19-dev \
-          libavahi-compat-libdnssd-dev \
-          git \
-          patch \
-          lintian
 
     - name: Apply disable-examples patch
       run: |
@@ -42,12 +44,21 @@ jobs:
         patch -p1 < ../disable-examples.patch
         cd ..
 
-
-
     - name: Build Debian package
       run: |
-        cd ..
-        dpkg-buildpackage -us -uc -b
+        # Build using native environment
+        fakeroot make -f debian/rules binary
+        
+        # Show built packages
+        ls -la ../*.deb
+        
+        # Rename to include architecture and distribution
+        for deb in ../${{ env.DEB_PACKAGE_NAME }}_*.deb; do
+          if [ -f "$deb" ]; then
+            new_name=$(echo "$deb" | sed "s/_${{ env.DEB_VERSION }}-1/_${{ env.DEB_VERSION }}-1_amd64_trixie/")
+            mv "$deb" "$new_name"
+          fi
+        done
         ls -la ../*.deb
 
     - name: Lint Debian package
