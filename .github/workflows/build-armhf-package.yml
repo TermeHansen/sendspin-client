@@ -64,14 +64,18 @@ jobs:
       uses: actions/upload-artifact@v7
       with:
         name: debian-package-armhf
-        path: ../*.deb
+        path: |
+          ${{ github.workspace }}/../sendspin-client_*.deb
+#          ${{ github.workspace }}/../sendspin-client-dbgsym_*.deb
         retention-days: 7
 
     - name: Create ARMHF Release
       if: github.event_name == 'release'
       uses: softprops/action-gh-release@v1
       with:
-        files: ../*.deb
+        files: |
+          ${{ github.workspace }}/../sendspin-client_*.deb
+#          ${{ github.workspace }}/../sendspin-client-dbgsym_*.deb
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
