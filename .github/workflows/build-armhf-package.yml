@@ -96,11 +96,3 @@ jobs:
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-    - name: Show package info
-      run: |
-        echo "=== Built ARMHF Debian Package ==="
-        ls -la ../*.deb
-        echo ""
-        echo "=== Package Contents ==="
-        dpkg -c ../*_armhf_trixie.deb
