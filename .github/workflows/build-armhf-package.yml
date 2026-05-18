@@ -32,6 +32,10 @@ jobs:
           avahi-daemon \
           lintian
     
+    - name: Setup environment
+      run: |
+        echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
+        
     - name: Checkout repository
       uses: actions/checkout@v4
       with:
@@ -78,8 +82,8 @@ jobs:
       with:
         name: debian-package-armhf
         path: |
-          ${{ github.workspace }}/../sendspin-client_*_armhf_*.deb
-#          ${{ github.workspace }}/../sendspin-client-dbgsym_*_armhf_*.deb
+          ${{ env.PARENT_DIR }}/sendspin-client_*_armhf_*.deb
+#          ${{ env.PARENT_DIR }}/sendspin-client-dbgsym_*_armhf_*.deb
         retention-days: 7
 
     - name: Create ARMHF Release
@@ -87,8 +91,8 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          ${{ github.workspace }}/../sendspin-client_*_armhf_*.deb
-#          ${{ github.workspace }}/../sendspin-client-dbgsym_*_armhf_*.deb
+          ${{ env.PARENT_DIR }}/sendspin-client_*_armhf_*.deb
+#          ${{ env.PARENT_DIR }}/sendspin-client-dbgsym_*_armhf_*.deb
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
