@@ -51,13 +51,26 @@ jobs:
         # Show built packages
         ls -la ../*.deb
         
+        # Detect Debian version codename and rename packages accordingly
+        DEBIAN_CODENAME=$(grep VERSION_CODENAME /etc/os-release | cut -d'=' -f2 | tr -d '"')
+        echo "Detected Debian codename: $DEBIAN_CODENAME"
+        
         # Rename to include architecture and distribution
         for deb in ../${{ env.DEB_PACKAGE_NAME }}_*.deb; do
           if [ -f "$deb" ]; then
-            new_name=$(echo "$deb" | sed "s/_${{ env.DEB_VERSION }}-1/_${{ env.DEB_VERSION }}-1_armhf_trixie/")
+            new_name=$(echo "$deb" | sed "s/_${{ env.DEB_VERSION }}-1/_${{ env.DEB_VERSION }}-1_armhf_${DEBIAN_CODENAME}/")
             sudo mv "$deb" "$new_name"
           fi
         done
+        
+        # Also rename dbgsym packages
+        for deb in ../${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb; do
+          if [ -f "$deb" ]; then
+            new_name=$(echo "$deb" | sed "s/_${{ env.DEB_VERSION }}-1/_${{ env.DEB_VERSION }}-1_armhf_${DEBIAN_CODENAME}/")
+            sudo mv "$deb" "$new_name"
+          fi
+        done
+        
         ls -la ../*.deb
 
     - name: Upload ARMHF Debian package artifact
@@ -65,8 +78,8 @@ jobs:
       with:
         name: debian-package-armhf
         path: |
-          ${{ github.workspace }}/../sendspin-client_*.deb
-#          ${{ github.workspace }}/../sendspin-client-dbgsym_*.deb
+          ${{ github.workspace }}/../sendspin-client_*_armhf_*.deb
+#          ${{ github.workspace }}/../sendspin-client-dbgsym_*_armhf_*.deb
         retention-days: 7
 
     - name: Create ARMHF Release
@@ -74,8 +87,8 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          ${{ github.workspace }}/../sendspin-client_*.deb
-#          ${{ github.workspace }}/../sendspin-client-dbgsym_*.deb
+          ${{ github.workspace }}/../sendspin-client_*_armhf_*.deb
+#          ${{ github.workspace }}/../sendspin-client-dbgsym_*_armhf_*.deb
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
