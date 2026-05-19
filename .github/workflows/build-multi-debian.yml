@@ -63,14 +63,13 @@ jobs:
 
     - name: Build Debian package
       run: |
-        cd package
         fakeroot make -f debian/rules binary
         
         # Show built packages
-        ls -la *.deb
+        ls -la ../*.deb
         
         # Rename to include architecture and distribution
-        for deb in ${{ env.DEB_PACKAGE_NAME }}_*.deb; do
+        for deb in ../${{ env.DEB_PACKAGE_NAME }}_*.deb; do
           if [ -f "$deb" ]; then
             new_name=$(echo "$deb" | sed "s/_${{ env.DEB_VERSION }}-1/_${{ env.DEB_VERSION }}-1_armhf_${{ matrix.debian }}/")
             mv "$deb" "$new_name"
@@ -78,24 +77,22 @@ jobs:
         done
         
         # Also rename dbgsym packages
-        for deb in ${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb; do
+        for deb in ../${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb; do
           if [ -f "$deb" ]; then
             new_name=$(echo "$deb" | sed "s/_${{ env.DEB_VERSION }}-1/_${{ env.DEB_VERSION }}-1_armhf_${{ matrix.debian }}/")
             mv "$deb" "$new_name"
           fi
         done
         
-        # Move packages to workspace root for upload
-        mv *_armhf_${{ matrix.debian }}.deb ..
-        ls -la *_armhf_${{ matrix.debian }}.deb
+        ls -la ../*_armhf_${{ matrix.debian }}.deb
 
     - name: Upload Debian package artifact
       uses: actions/upload-artifact@v7
       with:
         name: debian-package-armhf-${{ matrix.debian }}
         path: |
-          sendspin-client_*_armhf_${{ matrix.debian }}.deb
-          sendspin-client-dbgsym_*_armhf_${{ matrix.debian }}.deb
+          ${{ env.PARENT_DIR }}/sendspin-client_*_armhf_${{ matrix.debian }}.deb
+          ${{ env.PARENT_DIR }}/sendspin-client-dbgsym_*_armhf_${{ matrix.debian }}.deb
         retention-days: 7
 
     - name: Create Release
@@ -103,8 +100,8 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          sendspin-client_*_armhf_${{ matrix.debian }}.deb
-          sendspin-client-dbgsym_*_armhf_${{ matrix.debian }}.deb
+          ${{ env.PARENT_DIR }}/sendspin-client_*_armhf_${{ matrix.debian }}.deb
+          ${{ env.PARENT_DIR }}/sendspin-client-dbgsym_*_armhf_${{ matrix.debian }}.deb
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -112,7 +109,7 @@ jobs:
     - name: Show package info
       run: |
         echo "=== Built Debian Package for ${{ matrix.debian }} ==="
-        ls -la *_armhf_${{ matrix.debian }}.deb
+        ls -la ../*_armhf_${{ matrix.debian }}.deb
         echo ""
         echo "=== Package Contents ==="
-        dpkg -c *_armhf_${{ matrix.debian }}.deb | head -20
+        dpkg -c ../*_armhf_${{ matrix.debian }}.deb | head -20
