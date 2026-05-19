@@ -1,0 +1,118 @@
+name: Build Multi-Debian Packages
+
+on:
+  workflow_dispatch:  # Allow manual triggering
+  release:
+    types: [published]
+
+env:
+  DEB_PACKAGE_NAME: sendspin-client
+  DEB_VERSION: 0.1.0
+
+jobs:
+  build-debian-packages:
+    name: Build Debian Packages
+    runs-on: self-hosted  # Use Raspberry Pi self-hosted runner
+    
+    strategy:
+      fail-fast: false
+      matrix:
+        debian:
+          - bullseye
+          - bookworm
+          - trixie
+        include:
+          - debian: bullseye
+            image: "debian:bullseye"
+          - debian: bookworm
+            image: "debian:bookworm"
+          - debian: trixie
+            image: "debian:trixie"
+    
+    container:
+      image: ${{ matrix.image }}
+    
+    steps:
+    - name: Install build dependencies
+      run: |
+        apt-get update && apt-get install -y \
+          build-essential \
+          debhelper \
+          devscripts \
+          cmake \
+          git \
+          libportaudio2 \
+          portaudio19-dev \
+          libasound2-dev \
+          libavahi-compat-libdnssd-dev \
+          avahi-daemon \
+          lintian
+
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: recursive
+
+    - name: Apply disable-examples patch
+      run: |
+        cd sendspin-cpp
+        patch -p1 < ../disable-examples.patch
+        cd ..
+
+    - name: Build Debian package
+      run: |
+        # Create build directory and build from there
+        mkdir -p build
+        cd build
+        fakeroot make -f ../debian/rules binary
+        
+        # Show built packages
+        ls -la *.deb
+        
+        # Rename to include architecture and distribution
+        for deb in ${{ env.DEB_PACKAGE_NAME }}_*.deb; do
+          if [ -f "$deb" ]; then
+            new_name=$(echo "$deb" | sed "s/_${{ env.DEB_VERSION }}-1/_${{ env.DEB_VERSION }}-1_armhf_${{ matrix.debian }}/")
+            mv "$deb" "$new_name"
+          fi
+        done
+        
+        # Also rename dbgsym packages
+        for deb in ${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb; do
+          if [ -f "$deb" ]; then
+            new_name=$(echo "$deb" | sed "s/_${{ env.DEB_VERSION }}-1/_${{ env.DEB_VERSION }}-1_armhf_${{ matrix.debian }}/")
+            mv "$deb" "$new_name"
+          fi
+        done
+        
+        # Move packages to workspace root for upload
+        mv *_armhf_${{ matrix.debian }}.deb ..
+        ls -la *_armhf_${{ matrix.debian }}.deb
+
+    - name: Upload Debian package artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: debian-package-armhf-${{ matrix.debian }}
+        path: |
+          sendspin-client_*_armhf_${{ matrix.debian }}.deb
+          sendspin-client-dbgsym_*_armhf_${{ matrix.debian }}.deb
+        retention-days: 7
+
+    - name: Create Release
+      if: github.event_name == 'release'
+      uses: softprops/action-gh-release@v1
+      with:
+        files: |
+          sendspin-client_*_armhf_${{ matrix.debian }}.deb
+          sendspin-client-dbgsym_*_armhf_${{ matrix.debian }}.deb
+        generate_release_notes: true
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Show package info
+      run: |
+        echo "=== Built Debian Package for ${{ matrix.debian }} ==="
+        ls -la *_armhf_${{ matrix.debian }}.deb
+        echo ""
+        echo "=== Package Contents ==="
+        dpkg -c *_armhf_${{ matrix.debian }}.deb | head -20

@@ -83,7 +83,7 @@ jobs:
         name: debian-package-armhf
         path: |
           ${{ env.PARENT_DIR }}/sendspin-client_*_armhf_*.deb
-#          ${{ env.PARENT_DIR }}/sendspin-client-dbgsym_*_armhf_*.deb
+          ${{ env.PARENT_DIR }}/sendspin-client-dbgsym_*_armhf_*.deb
         retention-days: 7
 
     - name: Create ARMHF Release
@@ -92,7 +92,7 @@ jobs:
       with:
         files: |
           ${{ env.PARENT_DIR }}/sendspin-client_*_armhf_*.deb
-#          ${{ env.PARENT_DIR }}/sendspin-client-dbgsym_*_armhf_*.deb
+          ${{ env.PARENT_DIR }}/sendspin-client-dbgsym_*_armhf_*.deb
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
