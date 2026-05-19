@@ -18,16 +18,16 @@ jobs:
       fail-fast: false
       matrix:
         debian:
-          - bullseye
-          - bookworm
+#          - bullseye
+#          - bookworm
           - trixie
         include:
-          - debian: bullseye
-            image: "debian:bullseye"
-          - debian: bookworm
-            image: "debian:bookworm"
+#          - debian: bullseye
+#            image: "debian:bullseye"
+#          - debian: bookworm
+#            image: "debian:bookworm"
           - debian: trixie
-            image: "debian:trixie"
+            image: "badaix/raspios-lite:trixie"
     
     container:
       image: ${{ matrix.image }}
@@ -35,12 +35,13 @@ jobs:
     steps:
     - name: Install build dependencies
       run: |
-        apt-get update && apt-get install -y \
+        apt update && apt install -y \
           build-essential \
           debhelper \
           devscripts \
           cmake \
           git \
+          ca-certificates \
           libportaudio2 \
           portaudio19-dev \
           libasound2-dev \
@@ -48,10 +49,13 @@ jobs:
           avahi-daemon \
           lintian
 
-    - name: Checkout repository
-      uses: actions/checkout@v4
-      with:
-        submodules: recursive
+    - name: Install git and checkout
+      run: |
+        git config --global --add safe.directory /__w/sendspin-client/sendspin-client
+        git clone --recursive https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git .
+        git checkout ${{ github.sha }}
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Apply disable-examples patch
       run: |
