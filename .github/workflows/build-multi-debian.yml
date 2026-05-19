@@ -50,13 +50,10 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
 
-    - name: Install git and checkout
-      run: |
-        git config --global --add safe.directory /__w/sendspin-client/sendspin-client
-        git clone --recursive https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git .
-        git checkout ${{ github.sha }}
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    - name: Checkout
+      uses: actions/checkout@v6
+      with:
+        submodules: recursive
 
     - name: Apply disable-examples patch
       run: |
