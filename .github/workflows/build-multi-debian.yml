@@ -63,10 +63,8 @@ jobs:
 
     - name: Build Debian package
       run: |
-        # Create build directory and build from there
-        mkdir -p build
-        cd build
-        fakeroot make -f ../debian/rules binary
+        cd package
+        fakeroot make -f debian/rules binary
         
         # Show built packages
         ls -la *.deb
