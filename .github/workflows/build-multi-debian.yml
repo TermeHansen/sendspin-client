@@ -68,18 +68,13 @@ jobs:
         # Show built packages
         ls -la ../*.deb
         
-        # Rename to include architecture and distribution
-        for deb in ../${{ env.DEB_PACKAGE_NAME }}_*.deb; do
-          if [ -f "$deb" ]; then
-            new_name=$(echo "$deb" | sed "s/_${{ env.DEB_VERSION }}-1/_${{ env.DEB_VERSION }}-1_armhf_${{ matrix.debian }}/")
-            mv "$deb" "$new_name"
-          fi
-        done
+        # Clean up any old packages first
+        rm -f ../${{ env.DEB_PACKAGE_NAME }}_*_armhf_*.deb
         
-        # Also rename dbgsym packages
-        for deb in ../${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb; do
+        # Rename to include architecture and distribution
+        for deb in ../${{ env.DEB_PACKAGE_NAME }}_${{ env.DEB_VERSION }}-1_*.deb; do
           if [ -f "$deb" ]; then
-            new_name=$(echo "$deb" | sed "s/_${{ env.DEB_VERSION }}-1/_${{ env.DEB_VERSION }}-1_armhf_${{ matrix.debian }}/")
+            new_name=$(echo "$deb" | sed "s/_${{ env.DEB_VERSION }}-1_/_${{ env.DEB_VERSION }}-1_armhf_${{ matrix.debian }}_/")
             mv "$deb" "$new_name"
           fi
         done
