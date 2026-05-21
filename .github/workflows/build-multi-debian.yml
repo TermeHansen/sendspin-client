@@ -50,6 +50,15 @@ jobs:
       env:
         DEBIAN_FRONTEND: noninteractive
 
+    - name: Prepare debian directory
+      run: |
+        # Clean up any root-owned files from previous builds
+        if [ -d "debian/.debhelper" ]; then
+          sudo rm -rf debian/.debhelper
+        fi
+        mkdir -p debian/.debhelper
+        sudo chown -R $USER:$USER debian/.debhelper
+
     - name: Checkout
       uses: actions/checkout@v1
       with:
@@ -71,10 +80,14 @@ jobs:
         # Clean up any old packages first
         rm -f ../${{ env.DEB_PACKAGE_NAME }}_*_armhf_*.deb
         
-        # Rename to include architecture and distribution
+        # Detect actual architecture and rename appropriately
+        ACTUAL_ARCH=$(dpkg --print-architecture)
+        echo "Detected architecture: $ACTUAL_ARCH"
+        
+        # Rename to include actual architecture and distribution
         for deb in ../${{ env.DEB_PACKAGE_NAME }}_${{ env.DEB_VERSION }}-1_*.deb; do
           if [ -f "$deb" ]; then
-            new_name=$(echo "$deb" | sed "s/_${{ env.DEB_VERSION }}-1_/_${{ env.DEB_VERSION }}-1_armhf_${{ matrix.debian }}_/")
+            new_name=$(echo "$deb" | sed "s/_${{ env.DEB_VERSION }}-1_/_${{ env.DEB_VERSION }}-1_${ACTUAL_ARCH}_${{ matrix.debian }}_/")
             mv "$deb" "$new_name"
           fi
         done
