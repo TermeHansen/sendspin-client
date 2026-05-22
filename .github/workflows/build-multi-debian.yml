@@ -88,15 +88,15 @@ jobs:
           fi
         done
         
-        ls -la ../*_armhf_${{ matrix.debian }}.deb
+        ls -la ../*_${{ matrix.debian }}.deb
 
     - name: Upload Debian package artifact
       uses: actions/upload-artifact@v7
       with:
-        name: debian-package-armhf-${{ matrix.debian }}
+        name: debian-package-${{ matrix.debian }}
         path: |
-          ${{ env.PARENT_DIR }}/sendspin-client_*_armhf_${{ matrix.debian }}.deb
-          ${{ env.PARENT_DIR }}/sendspin-client-dbgsym_*_armhf_${{ matrix.debian }}.deb
+          ${{ env.PARENT_DIR }}/sendspin-client_*_${{ matrix.debian }}.deb
+          ${{ env.PARENT_DIR }}/sendspin-client-dbgsym_*_${{ matrix.debian }}.deb
         retention-days: 7
 
     - name: Create Release
@@ -104,8 +104,8 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          ${{ env.PARENT_DIR }}/sendspin-client_*_armhf_${{ matrix.debian }}.deb
-          ${{ env.PARENT_DIR }}/sendspin-client-dbgsym_*_armhf_${{ matrix.debian }}.deb
+          ${{ env.PARENT_DIR }}/sendspin-client_*_${{ matrix.debian }}.deb
+          ${{ env.PARENT_DIR }}/sendspin-client-dbgsym_*_${{ matrix.debian }}.deb
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -113,7 +113,7 @@ jobs:
     - name: Show package info
       run: |
         echo "=== Built Debian Package for ${{ matrix.debian }} ==="
-        ls -la ../*_armhf_${{ matrix.debian }}.deb
+        ls -la ../*_${{ matrix.debian }}.deb
         echo ""
         echo "=== Package Contents ==="
-        dpkg -c ../*_armhf_${{ matrix.debian }}.deb | head -20
+        dpkg -c ../*_${{ matrix.debian }}.deb | head -20
