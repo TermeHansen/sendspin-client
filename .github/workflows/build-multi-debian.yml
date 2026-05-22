@@ -41,6 +41,7 @@ jobs:
     - name: Install build dependencies
       run: |
         sed -i -e 's/MODULES=dep/MODULES=most/g' /etc/initramfs-tools/initramfs.conf || true
+        curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
         apt-get update && apt-get install -yq \
           build-essential \
           debhelper \
@@ -51,7 +52,8 @@ jobs:
           portaudio19-dev \
           libasound2-dev \
           libavahi-compat-libdnssd-dev \
-          avahi-daemon
+          avahi-daemon \
+          nodejs
       env:
         DEBIAN_FRONTEND: noninteractive
 
