@@ -23,7 +23,8 @@ jobs:
 #          - trixie
         include:
           - debian: bullseye
-            image: "debian:bullseye"
+#            image: "debian:bullseye"
+            image: "badaix/raspios-lite:bullseye"
 #          - debian: bookworm
 #            image: "debian:bookworm"
 #          - debian: trixie
