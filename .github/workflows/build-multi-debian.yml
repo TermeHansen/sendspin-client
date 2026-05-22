@@ -65,12 +65,6 @@ jobs:
       with:
         submodules: recursive
 
-    - name: Apply disable-examples patch
-      run: |
-        cd sendspin-cpp
-        patch -p1 < ../disable-examples.patch
-        cd ..
-
     - name: Build Debian package
       run: |
         fakeroot make -f debian/rules binary
