@@ -117,3 +117,8 @@ jobs:
         echo ""
         echo "=== Package Contents ==="
         dpkg -c ../*_${{ matrix.debian }}.deb | head -20
+        
+        # Clean up build directories to prevent permission issues
+        echo "Cleaning up build directories..."
+        rm -rf obj-*-linux-gnu*
+        rm -rf build
