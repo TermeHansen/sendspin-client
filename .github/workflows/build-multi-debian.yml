@@ -93,7 +93,7 @@ jobs:
         ls -la ../*_${{ matrix.debian }}.deb
 
     - name: Upload Debian package artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v7
       with:
         name: debian-package-${{ matrix.debian }}
         path: |
