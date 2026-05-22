@@ -18,16 +18,16 @@ jobs:
       fail-fast: false
       matrix:
         debian:
-#          - bullseye
+          - bullseye
 #          - bookworm
-          - trixie
+#          - trixie
         include:
-#          - debian: bullseye
-#            image: "debian:bullseye"
+          - debian: bullseye
+            image: "debian:bullseye"
 #          - debian: bookworm
 #            image: "debian:bookworm"
-          - debian: trixie
-            image: "badaix/raspios-lite:trixie"
+#          - debian: trixie
+#            image: "badaix/raspios-lite:trixie"
     
     container:
       image: ${{ matrix.image }}
@@ -53,11 +53,11 @@ jobs:
     - name: Prepare debian directory
       run: |
         # Clean up any root-owned files from previous builds
-        if [ -d "debian/.debhelper" ]; then
-          sudo rm -rf debian/.debhelper
+        if [ -d "debian" ]; then
+          sudo rm -rf debian
         fi
-        mkdir -p debian/.debhelper
-        sudo chown -R $USER:$USER debian/.debhelper
+#        mkdir -p debian/.debhelper
+#        sudo chown -R $USER:$USER debian/.debhelper
 
     - name: Checkout
       uses: actions/checkout@v1
