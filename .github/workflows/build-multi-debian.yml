@@ -67,13 +67,14 @@ jobs:
 
     - name: Build Debian package
       run: |
+        # Clean up all old packages before build - simpler approach
+        rm -f ../${{ env.DEB_PACKAGE_NAME }}_*.deb
+        rm -f ../${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb
+        
         fakeroot make -f debian/rules binary
         
         # Show built packages
         ls -la ../*.deb
-        
-        # Clean up any old packages first
-        rm -f ../${{ env.DEB_PACKAGE_NAME }}_*_armhf_*.deb
         
         # Detect actual architecture and rename appropriately
         ACTUAL_ARCH=$(dpkg --print-architecture)
