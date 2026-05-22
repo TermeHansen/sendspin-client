@@ -76,14 +76,10 @@ jobs:
         # Show built packages
         ls -la ../*.deb
         
-        # Detect actual architecture and rename appropriately
-        ACTUAL_ARCH=$(dpkg --print-architecture)
-        echo "Detected architecture: $ACTUAL_ARCH"
-        
-        # Rename to include actual architecture and distribution
+        # Rename to include distribution (architecture already in filename from build)
         for deb in ../${{ env.DEB_PACKAGE_NAME }}_${{ env.DEB_VERSION }}-1_*.deb; do
           if [ -f "$deb" ]; then
-            new_name=$(echo "$deb" | sed "s/_${{ env.DEB_VERSION }}-1_/_${{ env.DEB_VERSION }}-1_${ACTUAL_ARCH}_${{ matrix.debian }}_/")
+            new_name="${deb/.deb/_${{ matrix.debian }}.deb}"
             mv "$deb" "$new_name"
           fi
         done
