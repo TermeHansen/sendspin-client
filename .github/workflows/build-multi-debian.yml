@@ -34,6 +34,10 @@ jobs:
       image: ${{ matrix.image }}
     
     steps:
+    - name: Set up environment
+      run: |
+        echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
+        
     - name: Install build dependencies
       run: |
         sed -i -e 's/MODULES=dep/MODULES=most/g' /etc/initramfs-tools/initramfs.conf || true
