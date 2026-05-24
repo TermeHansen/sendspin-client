@@ -40,8 +40,6 @@ jobs:
     - name: Install build dependencies
       run: |
         apt-get update && apt-get install -yq --no-install-recommends \
-          -o DPkg::Post-Invoke::="rm -f /var/lib/dpkg/triggers/man-db" \
-          -o DPkg::Post-Invoke::="touch /var/lib/dpkg/triggers/man-db" \
           build-essential \
           debhelper \
           cmake \
@@ -52,6 +50,8 @@ jobs:
           libasound2-dev \
           libavahi-compat-libdnssd-dev \
           avahi-daemon
+#          -o DPkg::Post-Invoke::="rm -f /var/lib/dpkg/triggers/man-db" \
+#          -o DPkg::Post-Invoke::="touch /var/lib/dpkg/triggers/man-db" \
 #        sed -i -e 's/MODULES=dep/MODULES=most/g' /etc/initramfs-tools/initramfs.conf || true
 #        curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 #          nodejs
@@ -95,7 +95,7 @@ jobs:
         ls -la ../*_${{ matrix.debian }}.deb
 
     - name: Upload Debian package artifact
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@v3
       with:
         name: debian-package-${{ matrix.debian }}
         path: |
