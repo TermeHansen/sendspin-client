@@ -39,7 +39,9 @@ jobs:
         
     - name: Install build dependencies
       run: |
-        apt-get update && apt-get install -yq  \
+        apt-get update && apt-get install -yq --no-install-recommends \
+          -o DPkg::Post-Invoke::="rm -f /var/lib/dpkg/triggers/man-db" \
+          -o DPkg::Post-Invoke::="touch /var/lib/dpkg/triggers/man-db" \
           build-essential \
           debhelper \
           cmake \
@@ -50,8 +52,6 @@ jobs:
           libasound2-dev \
           libavahi-compat-libdnssd-dev \
           avahi-daemon
-#          -o DPkg::Post-Invoke::="rm -f /var/lib/dpkg/triggers/man-db" \
-#          -o DPkg::Post-Invoke::="touch /var/lib/dpkg/triggers/man-db" \
 #        sed -i -e 's/MODULES=dep/MODULES=most/g' /etc/initramfs-tools/initramfs.conf || true
 #        curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
 #          nodejs
@@ -62,7 +62,6 @@ jobs:
       run: |
         # Clean up any root-owned files from previous builds
         if [ -d "debian" ]; then
-#          sudo rm -rf debian
           rm -rf debian
         fi
 #        mkdir -p debian/.debhelper
