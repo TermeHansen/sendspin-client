@@ -39,7 +39,10 @@ jobs:
         
     - name: Install build dependencies
       run: |
-        apt-get update && apt-get install -yq \
+        apt-get update && apt-get install -yq --no-install-recommends \
+          # Disable man-db triggers for this install
+          -o DPkg::Post-Invoke::="rm -f /var/lib/dpkg/triggers/man-db" \
+          -o DPkg::Post-Invoke::="touch /var/lib/dpkg/triggers/man-db" \
           build-essential \
           debhelper \
           cmake \
@@ -60,7 +63,8 @@ jobs:
       run: |
         # Clean up any root-owned files from previous builds
         if [ -d "debian" ]; then
-          sudo rm -rf debian
+#          sudo rm -rf debian
+          rm -rf debian
         fi
 #        mkdir -p debian/.debhelper
 #        sudo chown -R $USER:$USER debian/.debhelper
