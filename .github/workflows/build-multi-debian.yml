@@ -71,12 +71,6 @@ jobs:
       with:
         submodules: recursive
 
-    - name: Apply disable-examples patch
-      run: |
-        cd sendspin-cpp
-        patch -p1 < ../disable-examples.patch
-        cd ..
-
     - name: Build Debian package
       run: |
         # Clean up all old packages before build
