@@ -1,4 +1,4 @@
-name: Build Multi-Debian Packages
+name: Build Unified Debian Packages
 
 on:
   workflow_dispatch:
@@ -11,22 +11,45 @@ env:
 
 jobs:
   build-debian-packages:
-    name: Build Debian Packages
-    runs-on: self-hosted
+    name: Build Debian Package (${{ matrix.arch }} - ${{ matrix.debian }})
+    runs-on: ${{ matrix.runner }}
 
     strategy:
       fail-fast: false
       matrix:
-        debian:
-          - bullseye
-          - bookworm
-          - trixie
         include:
-          - debian: bullseye
-            image: "arm32v7/debian:bullseye"
-          - debian: bookworm
+          # AMD64 builds using GitHub Ubuntu runners
+          - arch: amd64
+            debian: trixie
+            runner: ubuntu-latest
+            image: "debian:trixie"
+
+          # ARM64 builds using standard Debian images
+          - arch: arm64
+            debian: bullseye
+            runner: self-hosted
+            image: "debian:bullseye"
+          - arch: arm64
+            debian: bookworm
+            runner: self-hosted
             image: "debian:bookworm"
-          - debian: trixie
+          - arch: arm64
+            debian: trixie
+            runner: self-hosted
+            image: "debian:trixie"
+
+          # ARMHF builds using arm32v7 images
+          - arch: armhf
+            debian: bullseye
+            runner: self-hosted
+            image: "arm32v7/debian:bullseye"
+          - arch: armhf
+            debian: bookworm
+            runner: self-hosted
+            image: "arm32v7/debian:bookworm"
+          - arch: armhf
+            debian: trixie
+            runner: self-hosted
             image: "arm32v7/debian:trixie"
 
     container:
@@ -61,37 +84,46 @@ jobs:
         fi
 
     - name: Checkout
-      uses: actions/checkout@v1
+      uses: actions/checkout@v4
       with:
         submodules: recursive
 
+    - name: Apply disable-examples patch
+      run: |
+        cd sendspin-cpp
+        patch -p1 < ../disable-examples.patch
+        cd ..
+
     - name: Build Debian package
       run: |
-        # Clean up all old packages before build - simpler approach
+        # Clean up all old packages before build
         rm -f ../${{ env.DEB_PACKAGE_NAME }}_*.deb
         rm -f ../${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb
 
-        # fakeroot make -f debian/rules binary
+        # Build package
         dpkg-buildpackage -us -uc -b
 
         # Show built packages
         ls -la ../*.deb
 
-        # Rename to include distribution (architecture already in filename from build)
+        # Rename to include architecture and distribution
         for deb in ../${{ env.DEB_PACKAGE_NAME }}*.deb; do
           if [ -f "$deb" ]; then
-            new_name="$(echo "$deb" | sed "s/.deb$/_${{ matrix.debian }}.deb/")"
+            new_name="$(echo "$deb" | sed "s/.deb$/_${{ matrix.arch }}_${{ matrix.debian }}.deb/")"
             mv "$deb" "$new_name"
           fi
         done
 
+        # Show final packages
+        ls -la ../*.deb
+
     - name: Upload Debian package artifact
-      uses: actions/upload-artifact@v7
+      uses: actions/upload-artifact@v4
       with:
-        name: debian-package-${{ matrix.debian }}
+        name: debian-package-${{ matrix.arch }}-${{ matrix.debian }}
         path: |
-          ${{ env.PARENT_DIR }}/sendspin-client_*_${{ matrix.debian }}.deb
-          ${{ env.PARENT_DIR }}/sendspin-client-dbgsym_*_${{ matrix.debian }}.deb
+          ${{ env.PARENT_DIR }}/sendspin-client_*_${{ matrix.arch }}_${{ matrix.debian }}.deb
+          ${{ env.PARENT_DIR }}/sendspin-client-dbgsym_*_${{ matrix.arch }}_${{ matrix.debian }}.deb
         retention-days: 7
 
     - name: Create Release
@@ -99,8 +131,8 @@ jobs:
       uses: softprops/action-gh-release@v1
       with:
         files: |
-          ${{ env.PARENT_DIR }}/sendspin-client_*_${{ matrix.debian }}.deb
-          ${{ env.PARENT_DIR }}/sendspin-client-dbgsym_*_${{ matrix.debian }}.deb
+          ${{ env.PARENT_DIR }}/sendspin-client_*_${{ matrix.arch }}_${{ matrix.debian }}.deb
+          ${{ env.PARENT_DIR }}/sendspin-client-dbgsym_*_${{ matrix.arch }}_${{ matrix.debian }}.deb
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
