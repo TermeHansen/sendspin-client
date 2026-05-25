@@ -11,50 +11,33 @@ env:
 
 jobs:
   build-debian-packages:
-    name: Build Debian Package (${{ matrix.arch }} - ${{ matrix.debian }})
-    runs-on: ${{ matrix.runner }}
 
     strategy:
       fail-fast: false
       matrix:
+        debian:
+          - bullseye
+          - bookworm
+          - trixie
+        arch:
+          - amd64
+          - armhf
+          - arm64
         include:
-          # AMD64 builds using GitHub Ubuntu runners
-          - arch: amd64
-            debian: trixie
-            runner: ubuntu-latest
-            image: "debian:trixie"
-
-          # ARM64 builds using standard Debian images
-          - arch: arm64
-            debian: bullseye
-            runner: self-hosted
-            image: "debian:bullseye"
-          - arch: arm64
-            debian: bookworm
-            runner: self-hosted
-            image: "debian:bookworm"
-          - arch: arm64
-            debian: trixie
-            runner: self-hosted
-            image: "debian:trixie"
-
-          # ARMHF builds using arm32v7 images
-          - arch: armhf
-            debian: bullseye
-            runner: self-hosted
-            image: "arm32v7/debian:bullseye"
-          - arch: armhf
-            debian: bookworm
-            runner: self-hosted
-            image: "arm32v7/debian:bookworm"
-          - arch: armhf
-            debian: trixie
-            runner: self-hosted
-            image: "arm32v7/debian:trixie"
+          - arch: "amd64"
+            os: ubuntu-latest
+            image_prefix: "debian:"
+          - arch: "armhf"
+            os: self-hosted
+            image_prefix: "arm32v7/debian:"
+          - arch: "arm64"
+            os: self-hosted
+            image_prefix: "debian:"
+    runs-on: ${{ matrix.os }}
+    name: deb (${{ matrix.arch }}, ${{ matrix.debian }})
 
     container:
-      image: ${{ matrix.image }}
-
+      image: ${{matrix.image_prefix}}${{matrix.debian}}
     steps:
     - name: Set up environment
       run: |
