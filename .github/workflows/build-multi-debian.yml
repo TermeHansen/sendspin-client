@@ -65,10 +65,9 @@ jobs:
         if [ -d "debian" ]; then
           rm -rf debian
         fi
-        git config --global --add safe.directory /__w/sendspin-client
 
     - name: Checkout
-      uses: actions/checkout@v4
+      uses: actions/checkout@v1
       with:
         submodules: recursive
 
