@@ -23,46 +23,37 @@ jobs:
             debian: trixie
             runner: ubuntu-latest
             image: "debian:trixie"
-            use_container: true
 
           # ARM64 builds using standard Debian images
           - arch: arm64
             debian: bullseye
             runner: self-hosted
             image: "debian:bullseye"
-            use_container: true
           - arch: arm64
             debian: bookworm
             runner: self-hosted
             image: "debian:bookworm"
-            use_container: true
           - arch: arm64
             debian: trixie
             runner: self-hosted
             image: "debian:trixie"
-            use_container: true
 
           # ARMHF builds using arm32v7 images
           - arch: armhf
             debian: bullseye
             runner: self-hosted
             image: "arm32v7/debian:bullseye"
-            use_container: true
           - arch: armhf
             debian: bookworm
             runner: self-hosted
             image: "arm32v7/debian:bookworm"
-            use_container: true
           - arch: armhf
             debian: trixie
             runner: self-hosted
             image: "arm32v7/debian:trixie"
-            use_container: true
 
     container:
       image: ${{ matrix.image }}
-      # Only use container for builds that need it
-      if: matrix.use_container
 
     steps:
     - name: Set up environment
