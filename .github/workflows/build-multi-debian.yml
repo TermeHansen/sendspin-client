@@ -40,8 +40,6 @@ jobs:
     - name: Install build dependencies
       run: |
         apt-get update && apt-get install -yq --no-install-recommends \
-          -o DPkg::Post-Invoke::="rm -f /var/lib/dpkg/triggers/man-db" \
-          -o DPkg::Post-Invoke::="touch /var/lib/dpkg/triggers/man-db" \
           build-essential \
           debhelper \
           cmake \
@@ -78,7 +76,8 @@ jobs:
         rm -f ../${{ env.DEB_PACKAGE_NAME }}_*.deb
         rm -f ../${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb
         
-        fakeroot make -f debian/rules binary
+        # fakeroot make -f debian/rules binary
+        dpkg-buildpackage -us -uc -b
         
         # Show built packages
         ls -la ../*.deb
