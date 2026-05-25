@@ -17,10 +17,10 @@ jobs:
       matrix:
         debian:
           - bullseye
-          - bookworm
+          # - bookworm
           - trixie
         arch:
-          - amd64
+          # - amd64
           - armhf
           - arm64
         include:
@@ -65,6 +65,7 @@ jobs:
         if [ -d "debian" ]; then
           rm -rf debian
         fi
+        git config --global --add safe.directory /__w/sendspin-client
 
     - name: Checkout
       uses: actions/checkout@v4
