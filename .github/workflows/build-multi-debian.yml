@@ -1,7 +1,7 @@
 name: Build Multi-Debian Packages
 
 on:
-  workflow_dispatch:  # Allow manual triggering
+  workflow_dispatch:
   release:
     types: [published]
 
@@ -12,31 +12,31 @@ env:
 jobs:
   build-debian-packages:
     name: Build Debian Packages
-    runs-on: self-hosted  # Use Raspberry Pi self-hosted runner
-    
+    runs-on: self-hosted
+
     strategy:
       fail-fast: false
       matrix:
         debian:
           - bullseye
-#          - bookworm
+          - bookworm
           - trixie
         include:
           - debian: bullseye
             image: "arm32v7/debian:bullseye"
-#          - debian: bookworm
-#            image: "debian:bookworm"
+          - debian: bookworm
+            image: "debian:bookworm"
           - debian: trixie
             image: "arm32v7/debian:trixie"
-    
+
     container:
       image: ${{ matrix.image }}
-    
+
     steps:
     - name: Set up environment
       run: |
         echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
-        
+
     - name: Install build dependencies
       run: |
         apt-get update && apt-get install -yq --no-install-recommends \
@@ -50,9 +50,6 @@ jobs:
           libasound2-dev \
           libavahi-compat-libdnssd-dev \
           avahi-daemon
-#        sed -i -e 's/MODULES=dep/MODULES=most/g' /etc/initramfs-tools/initramfs.conf || true
-#        curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
-#          nodejs
       env:
         DEBIAN_FRONTEND: noninteractive
 
@@ -62,8 +59,6 @@ jobs:
         if [ -d "debian" ]; then
           rm -rf debian
         fi
-#        mkdir -p debian/.debhelper
-#        sudo chown -R $USER:$USER debian/.debhelper
 
     - name: Checkout
       uses: actions/checkout@v1
@@ -75,13 +70,13 @@ jobs:
         # Clean up all old packages before build - simpler approach
         rm -f ../${{ env.DEB_PACKAGE_NAME }}_*.deb
         rm -f ../${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb
-        
+
         # fakeroot make -f debian/rules binary
         dpkg-buildpackage -us -uc -b
-        
+
         # Show built packages
         ls -la ../*.deb
-        
+
         # Rename to include distribution (architecture already in filename from build)
         for deb in ../${{ env.DEB_PACKAGE_NAME }}*.deb; do
           if [ -f "$deb" ]; then
@@ -89,8 +84,6 @@ jobs:
             mv "$deb" "$new_name"
           fi
         done
-        
-        ls -la ../*_${{ matrix.debian }}.deb
 
     - name: Upload Debian package artifact
       uses: actions/upload-artifact@v7
@@ -112,14 +105,8 @@ jobs:
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Show package info
+    - name: Clean up
       run: |
-        echo "=== Built Debian Package for ${{ matrix.debian }} ==="
-        ls -la ../*_${{ matrix.debian }}.deb
-        echo ""
-        echo "=== Package Contents ==="
-        dpkg -c ../*_${{ matrix.debian }}.deb | head -20
-        
         # Clean up build directories to prevent permission issues
         echo "Cleaning up build directories..."
         rm -rf obj-*-linux-gnu*
