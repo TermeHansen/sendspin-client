@@ -20,14 +20,14 @@ jobs:
         debian:
           - bullseye
 #          - bookworm
-#          - trixie
+          - trixie
         include:
           - debian: bullseye
             image: "arm32v7/debian:bullseye"
 #          - debian: bookworm
 #            image: "debian:bookworm"
-#          - debian: trixie
-#            image: "badaix/raspios-lite:trixie"
+          - debian: trixie
+            image: "arm32v7/debian:trixie"
     
     container:
       image: ${{ matrix.image }}
