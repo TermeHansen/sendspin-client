@@ -96,7 +96,7 @@ jobs:
         ls -la ${{ env.PARENT_DIR }}/*.deb
 
     - name: Upload Debian package artifact
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v3
       with:
         name: debian-package-${{ matrix.arch }}-${{ matrix.debian }}
         path: |
