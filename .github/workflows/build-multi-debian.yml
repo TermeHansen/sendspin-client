@@ -86,7 +86,7 @@ jobs:
         # Rename to include architecture and distribution
         for deb in ../${{ env.DEB_PACKAGE_NAME }}*.deb; do
           if [ -f "$deb" ]; then
-            new_name="$(echo "$deb" | sed "s/.deb$/_${{ matrix.arch }}_${{ matrix.debian }}.deb/")"
+            new_name="$(echo "$deb" | sed "s/.deb$/_${{ matrix.debian }}.deb/")"
             mv "$deb" "$new_name"
           fi
         done
