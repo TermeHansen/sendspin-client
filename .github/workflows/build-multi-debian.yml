@@ -94,7 +94,7 @@ jobs:
       - name: Set up environment
         run: |
           echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
-          mkdir -p ${{ env.UPLOAD_DIR }}
+          mkdir -p ${{ env.PARENT_DIR }}/upload
 
       - name: Install build dependencies
         run: |
@@ -135,10 +135,10 @@ jobs:
           done
 
           # Copy to upload directory
-          cp ${{ env.PARENT_DIR }}/*.deb ${{ env.UPLOAD_DIR }}/
+          cp ${{ env.PARENT_DIR }}/*.deb ${{ env.PARENT_DIR }}/upload/.
 
       - name: List uploaded files (${{ matrix.arch }})
-        run: ls -la ${{ env.UPLOAD_DIR }}
+        run: ls -la ${{ env.PARENT_DIR }}/upload
 
   # --- Job 3: Combine and upload all artifacts ---
   upload-all:
@@ -151,7 +151,6 @@ jobs:
       - name: Set up environment
         run: |
           echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
-          mkdir -p ${{ env.UPLOAD_DIR }}
 
       - name: Install build dependencies
         run: |
@@ -169,21 +168,20 @@ jobs:
 
       - name: Move all .deb files to a single directory
         run: |
-          mkdir -p ${{ env.UPLOAD_DIR }}
-          find artifacts -name "*.deb" -exec cp {} ${{ env.UPLOAD_DIR }}/ \;
+          find artifacts -name "*.deb" -exec cp {} ${{ env.PARENT_DIR }}/upload/ \;
 
       - name: Upload all .deb files as a single artifact
         uses: actions/upload-artifact@v7
         with:
           name: all-debian-packages
-          path: ${{ env.UPLOAD_DIR }}/*.deb
+          path: ${{ env.PARENT_DIR }}/upload/*.deb
           retention-days: 7
 
       - name: Create Release (if triggered by release)
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v1
         with:
-          files: ${{ env.UPLOAD_DIR }}/*.deb
+          files: ${{ env.PARENT_DIR }}/upload/*.deb
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
