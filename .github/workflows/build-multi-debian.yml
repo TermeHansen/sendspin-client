@@ -93,6 +93,7 @@ jobs:
 
         # Show final packages
         ls -la ../*.deb
+        ls -la ${{ env.PARENT_DIR }}/*.deb
 
     - name: Upload Debian package artifact
       uses: actions/upload-artifact@v4
@@ -100,7 +101,7 @@ jobs:
         name: debian-package-${{ matrix.arch }}-${{ matrix.debian }}
         path: |
           ${{ env.PARENT_DIR }}/sendspin-client_*_${{ matrix.arch }}_${{ matrix.debian }}.deb
-          ${{ env.PARENT_DIR }}/sendspin-client-dbgsym_*_${{ matrix.arch }}_${{ matrix.debian }}.deb
+          # ${{ env.PARENT_DIR }}/sendspin-client-dbgsym_*_${{ matrix.arch }}_${{ matrix.debian }}.deb
         retention-days: 7
 
     - name: Create Release
@@ -109,7 +110,7 @@ jobs:
       with:
         files: |
           ${{ env.PARENT_DIR }}/sendspin-client_*_${{ matrix.arch }}_${{ matrix.debian }}.deb
-          ${{ env.PARENT_DIR }}/sendspin-client-dbgsym_*_${{ matrix.arch }}_${{ matrix.debian }}.deb
+          # ${{ env.PARENT_DIR }}/sendspin-client-dbgsym_*_${{ matrix.arch }}_${{ matrix.debian }}.deb
         generate_release_notes: true
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
