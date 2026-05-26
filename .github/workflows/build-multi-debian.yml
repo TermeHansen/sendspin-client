@@ -58,7 +58,7 @@ jobs:
           avahi-daemon \
           curl
         curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-        apt-get install nodejs
+        apt-get install -yq nodejs
       env:
         DEBIAN_FRONTEND: noninteractive
 
