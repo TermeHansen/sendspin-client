@@ -112,7 +112,7 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
 
       - name: Checkout
-        uses: actions/checkout@v3
+        uses: actions/checkout@v1
         with:
           submodules: recursive
 
