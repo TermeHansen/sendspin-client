@@ -1,4 +1,4 @@
-name: Build Unified Debian Packages
+name: Build and Upload Debian Packages
 
 on:
   workflow_dispatch:
@@ -7,120 +7,183 @@ on:
 
 env:
   DEB_PACKAGE_NAME: sendspin-client
-  DEB_VERSION: 0.1.0
+  UPLOAD_DIR: ${{ github.workspace }}/upload  # Shared directory for all .deb files
 
 jobs:
-  build-debian-packages:
+  # --- Job 1: Build amd64 on GitHub-hosted runner ---
+  build-amd64:
+    name: Build amd64
+    runs-on: ubuntu-latest
+    container:
+      image: debian:trixie  # or ${{ matrix.debian }} if you want to matrix this
+    steps:
+      - name: Set up environment
+        run: |
+          echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
+          mkdir -p ${{ env.UPLOAD_DIR }}
 
+      - name: Install build dependencies
+        run: |
+          apt-get update && apt-get install -yq --no-install-recommends \
+            build-essential \
+            debhelper \
+            cmake \
+            git \
+            ca-certificates \
+            libportaudio2 \
+            portaudio19-dev \
+            libasound2-dev \
+            libavahi-compat-libdnssd-dev \
+            avahi-daemon
+        env:
+          DEBIAN_FRONTEND: noninteractive
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build Debian package (amd64)
+        run: |
+          # Clean up old packages
+          rm -f ../${{ env.DEB_PACKAGE_NAME }}_*.deb
+          rm -f ../${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb
+
+          # Build
+          dpkg-buildpackage -us -uc -b
+
+          # Rename to include architecture and distribution
+          for deb in ../${{ env.DEB_PACKAGE_NAME }}*.deb; do
+            if [ -f "$deb" ]; then
+              new_name="$(echo "$deb" | sed "s/.deb$/_bullseye.deb/")"
+              mv "$deb" "$new_name"
+            fi
+          done
+
+          # Copy to upload directory
+          cp ${{ env.PARENT_DIR }}/*.deb ${{ env.UPLOAD_DIR }}/
+
+      - name: List uploaded files (amd64)
+        run: ls -la ${{ env.UPLOAD_DIR }}
+
+      - name: Upload amd64 artifacts (temporary)
+        uses: actions/upload-artifact@v7  # Use v3 for compatibility
+        with:
+          name: amd64-debs
+          path: ${{ env.UPLOAD_DIR }}/*.deb
+          retention-days: 1  # Short retention since we'll re-upload later
+
+  # --- Job 2: Build armhf and arm64 on self-hosted runner ---
+  build-arm:
+    name: Build arm (${{ matrix.arch }})
+    runs-on: self-hosted
     strategy:
       fail-fast: false
       matrix:
-        debian:
-          - bullseye
-          # - bookworm
-          - trixie
-        arch:
-          # - amd64
-          - armhf
-          - arm64
+        arch: [armhf, arm64]
+        debian: [bullseye, trixie]
         include:
-          - arch: "amd64"
-            os: ubuntu-latest
-            image_prefix: "debian:"
           - arch: "armhf"
-            os: self-hosted
             image_prefix: "arm32v7/debian:"
           - arch: "arm64"
-            os: self-hosted
             image_prefix: "debian:"
-    runs-on: ${{ matrix.os }}
-    name: deb (${{ matrix.arch }}, ${{ matrix.debian }})
-
     container:
-      image: ${{matrix.image_prefix}}${{matrix.debian}}
+      image: ${{ matrix.image_prefix }}${{ matrix.debian }}
+
     steps:
-    - name: Set up environment
-      run: |
-        echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
+      - name: Set up environment
+        run: |
+          echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
+          mkdir -p ${{ env.UPLOAD_DIR }}
 
-    - name: Install build dependencies
-      run: |
-        apt-get update && apt-get install -yq --no-install-recommends \
-          build-essential \
-          debhelper \
-          cmake \
-          git \
-          ca-certificates \
-          libportaudio2 \
-          portaudio19-dev \
-          libasound2-dev \
-          libavahi-compat-libdnssd-dev \
-          avahi-daemon \
-          curl
-        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
-        apt-get install -yq nodejs
-      env:
-        DEBIAN_FRONTEND: noninteractive
+      - name: Install build dependencies
+        run: |
+          apt-get update && apt-get install -yq --no-install-recommends \
+            build-essential \
+            debhelper \
+            cmake \
+            git \
+            ca-certificates \
+            libportaudio2 \
+            portaudio19-dev \
+            libasound2-dev \
+            libavahi-compat-libdnssd-dev \
+            avahi-daemon
+        env:
+          DEBIAN_FRONTEND: noninteractive
 
-    - name: Prepare debian directory
-      run: |
-        # Clean up any root-owned files from previous builds
-        if [ -d "debian" ]; then
-          rm -rf debian
-        fi
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
 
-    - name: Checkout
-      uses: actions/checkout@v1
-      with:
-        submodules: recursive
+      - name: Build Debian package (${{ matrix.arch }})
+        run: |
+          # Clean up old packages
+          rm -f ../${{ env.DEB_PACKAGE_NAME }}_*.deb
+          rm -f ../${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb
 
-    - name: Build Debian package
-      run: |
-        # Clean up all old packages before build
-        rm -f ../${{ env.DEB_PACKAGE_NAME }}_*.deb
-        rm -f ../${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb
+          # Build for the correct architecture
+          dpkg-buildpackage -us -uc -b
 
-        # Build package
-        dpkg-buildpackage -us -uc -b
+          # Rename to include architecture and distribution
+          for deb in ../${{ env.DEB_PACKAGE_NAME }}*.deb; do
+            if [ -f "$deb" ]; then
+              new_name="$(echo "$deb" | sed "s/.deb$/_${{ matrix.arch }}_${{ matrix.debian }}.deb/")"
+              mv "$deb" "$new_name"
+            fi
+          done
 
-        # Show built packages
-        ls -la ../*.deb
+          # Copy to upload directory
+          cp ${{ env.PARENT_DIR }}/*.deb ${{ env.UPLOAD_DIR }}/
 
-        # Rename to include architecture and distribution
-        for deb in ../${{ env.DEB_PACKAGE_NAME }}*.deb; do
-          if [ -f "$deb" ]; then
-            new_name="$(echo "$deb" | sed "s/.deb$/_${{ matrix.debian }}.deb/")"
-            mv "$deb" "$new_name"
-          fi
-        done
+      - name: List uploaded files (${{ matrix.arch }})
+        run: ls -la ${{ env.UPLOAD_DIR }}
 
-        # Show final packages
-        ls -la ../*.deb
-        ls -la ${{ env.PARENT_DIR }}/*.deb
+  # --- Job 3: Combine and upload all artifacts ---
+  upload-all:
+    name: Upload all packages
+    needs: [build-amd64, build-arm]
+    runs-on: self-hosted  # Use GitHub-hosted runner for upload (has Node.js 20)
+    container:
+      image: debian:trixie
+    steps:
+      - name: Set up environment
+        run: |
+          echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
+          mkdir -p ${{ env.UPLOAD_DIR }}
 
-    - name: Upload Debian package artifact
-      uses: actions/upload-artifact@v4
-      with:
-        name: debian-package-${{ matrix.arch }}-${{ matrix.debian }}
-        path: |
-          ${{ env.PARENT_DIR }}/sendspin-client_*_${{ matrix.arch }}_${{ matrix.debian }}.deb
-          # ${{ env.PARENT_DIR }}/sendspin-client-dbgsym_*_${{ matrix.arch }}_${{ matrix.debian }}.deb
-        retention-days: 7
+      - name: Install build dependencies
+        run: |
+          apt-get update && apt-get install -yq --no-install-recommends nodejs
+        env:
+          DEBIAN_FRONTEND: noninteractive
 
-    - name: Create Release
-      if: github.event_name == 'release'
-      uses: softprops/action-gh-release@v1
-      with:
-        files: |
-          ${{ env.PARENT_DIR }}/sendspin-client_*_${{ matrix.arch }}_${{ matrix.debian }}.deb
-          # ${{ env.PARENT_DIR }}/sendspin-client-dbgsym_*_${{ matrix.arch }}_${{ matrix.debian }}.deb
-        generate_release_notes: true
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Download all artifacts
+        uses: actions/download-artifact@v3
+        with:
+          path: artifacts
 
-    - name: Clean up
-      run: |
-        # Clean up build directories to prevent permission issues
-        echo "Cleaning up build directories..."
-        rm -rf obj-*-linux-gnu*
-        rm -rf build
+      - name: List all downloaded files
+        run: find artifacts -name "*.deb" -exec ls -la {} \;
+
+      - name: Move all .deb files to a single directory
+        run: |
+          mkdir -p ${{ env.UPLOAD_DIR }}
+          find artifacts -name "*.deb" -exec cp {} ${{ env.UPLOAD_DIR }}/ \;
+
+      - name: Upload all .deb files as a single artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: all-debian-packages
+          path: ${{ env.UPLOAD_DIR }}/*.deb
+          retention-days: 7
+
+      - name: Create Release (if triggered by release)
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v1
+        with:
+          files: ${{ env.UPLOAD_DIR }}/*.deb
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
