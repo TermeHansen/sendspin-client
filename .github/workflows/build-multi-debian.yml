@@ -45,7 +45,6 @@ jobs:
 
     - name: Install build dependencies
       run: |
-        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
         apt-get update && apt-get install -yq --no-install-recommends \
           build-essential \
           debhelper \
@@ -57,7 +56,9 @@ jobs:
           libasound2-dev \
           libavahi-compat-libdnssd-dev \
           avahi-daemon \
-          nodejs
+          curl
+        curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+        apt-get install nodejs
       env:
         DEBIAN_FRONTEND: noninteractive
 
