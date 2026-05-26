@@ -94,7 +94,6 @@ jobs:
       - name: Set up environment
         run: |
           echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
-          mkdir -p ${{ env.PARENT_DIR }}/upload
 
       - name: Install build dependencies
         run: |
@@ -135,6 +134,7 @@ jobs:
           done
 
           # Copy to upload directory
+          mkdir -p ${{ env.PARENT_DIR }}/upload
           cp ${{ env.PARENT_DIR }}/*.deb ${{ env.PARENT_DIR }}/upload/.
 
       - name: List uploaded files (${{ matrix.arch }})
