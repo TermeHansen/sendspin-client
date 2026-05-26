@@ -147,6 +147,12 @@ jobs:
       - name: List uploaded files (${{ matrix.arch }})
         run: ls -la ${{ env.PARENT_DIR }}/upload
 
+      - name: Clean up
+        run: |
+          # Clean up build directories to prevent permission issues
+          echo "Cleaning up build directories..."
+          rm -rf obj-*-linux-gnu*
+
   # --- Job 3: Combine and upload all artifacts ---
   upload-all:
     name: Upload all packages
