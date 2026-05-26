@@ -111,6 +111,13 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
 
+      - name: Prepare debian directory
+        run: |
+          # Clean up any root-owned files from previous builds
+          if [ -d "debian" ]; then
+            rm -rf debian
+          fi
+
       - name: Checkout
         uses: actions/checkout@v1
         with:
