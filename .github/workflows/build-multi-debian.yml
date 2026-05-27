@@ -7,7 +7,6 @@ on:
 
 env:
   DEB_PACKAGE_NAME: sendspin-client
-  UPLOAD_DIR: ${{ github.workspace }}/upload  # Shared directory for all .deb files
 
 jobs:
   # --- Job 1: Build amd64 on GitHub-hosted runner ---
@@ -20,7 +19,6 @@ jobs:
       - name: Set up environment
         run: |
           echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
-          mkdir -p ${{ env.UPLOAD_DIR }}
 
       - name: Install build dependencies
         run: |
@@ -61,16 +59,17 @@ jobs:
           done
 
           # Copy to upload directory
-          cp ${{ env.PARENT_DIR }}/*.deb ${{ env.UPLOAD_DIR }}/
+          mkdir -p ${{ env.PARENT_DIR }}/upload
+          cp ${{ env.PARENT_DIR }}/*.deb ${{ env.PARENT_DIR }}/upload/.
 
       - name: List uploaded files (amd64)
-        run: ls -la ${{ env.UPLOAD_DIR }}
+        run: ls -la ${{ env.PARENT_DIR }}/upload
 
       - name: Upload amd64 artifacts (temporary)
         uses: actions/upload-artifact@v7  # Use v3 for compatibility
         with:
           name: amd64-debs
-          path: ${{ env.UPLOAD_DIR }}/*.deb
+          path: ${{ env.PARENT_DIR }}/upload/*.deb
           retention-days: 1  # Short retention since we'll re-upload later
 
   # --- Job 2: Build armhf and arm64 on self-hosted runner ---
@@ -80,8 +79,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [armhf, arm64]
-        debian: [bullseye, trixie]
+        arch: [arm64]
+        debian: [trixie]
         include:
           - arch: "armhf"
             image_prefix: "arm32v7/debian:"
@@ -172,7 +171,7 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
 
       - name: Download all artifacts
-        uses: actions/download-artifact@v8
+        uses: actions/download-artifact@v6
         with:
           path: artifacts
 
