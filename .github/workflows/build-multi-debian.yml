@@ -156,19 +156,19 @@ jobs:
   upload-all:
     name: Upload all packages
     needs: [build-amd64, build-arm]
-    runs-on: self-hosted  # Use GitHub-hosted runner for upload (has Node.js 20)
-    container:
-      image: debian:trixie
+    runs-on: self-hosted
+    # container:
+    #   image: debian:trixie
     steps:
       - name: Set up environment
         run: |
           echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
 
-      - name: Install build dependencies
-        run: |
-          apt-get update && apt-get install -yq --no-install-recommends nodejs
-        env:
-          DEBIAN_FRONTEND: noninteractive
+      # - name: Install build dependencies
+      #   run: |
+      #    apt-get update && apt-get install -yq --no-install-recommends nodejs
+      #  env:
+      #    DEBIAN_FRONTEND: noninteractive
 
       - name: Download all artifacts
         uses: actions/download-artifact@v6
