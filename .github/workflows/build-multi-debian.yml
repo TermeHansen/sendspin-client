@@ -79,11 +79,11 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: [arm64]
-        debian: [trixie]
+        arch: [armhf, arm64]
+        debian: [bullseye, trixie]
         include:
-          # - arch: "armhf"
-          #   image_prefix: "arm32v7/debian:"
+          - arch: "armhf"
+            image_prefix: "arm32v7/debian:"
           - arch: "arm64"
             image_prefix: "debian:"
     container:
@@ -157,18 +157,10 @@ jobs:
     name: Upload all packages
     needs: [build-amd64, build-arm]
     runs-on: self-hosted
-    # container:
-    #   image: debian:trixie
     steps:
       - name: Set up environment
         run: |
           echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
-
-      # - name: Install build dependencies
-      #   run: |
-      #    apt-get update && apt-get install -yq --no-install-recommends nodejs
-      #  env:
-      #    DEBIAN_FRONTEND: noninteractive
 
       - name: Download all artifacts
         uses: actions/download-artifact@v6
