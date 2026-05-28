@@ -157,6 +157,8 @@ jobs:
     name: Upload all packages
     needs: [build-amd64, build-arm]
     runs-on: self-hosted
+    permissions:
+      contents: write
     steps:
       - name: Set up environment
         run: |
