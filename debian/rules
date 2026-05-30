@@ -15,8 +15,14 @@ override_dh_auto_install:
 	# Install additional files manually
 	mkdir -p debian/sendspin-client/usr/bin
 	cp obj-$(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)/sendspin-client debian/sendspin-client/usr/bin/
-	mkdir -p debian/sendspin-client/lib/systemd/system
-	cp debian/sendspin-client.service debian/sendspin-client/lib/systemd/system/
+	# Determine correct systemd path based on Debian version
+	if [ -d /usr/lib/systemd/system ]; then \
+	    SYSTEMD_PATH="/usr/lib/systemd/system"; \
+	else \
+	    SYSTEMD_PATH="/lib/systemd/system"; \
+	fi; \
+	mkdir -p debian/sendspin-client$$SYSTEMD_PATH; \
+	cp debian/sendspin-client.service debian/sendspin-client$$SYSTEMD_PATH
 	mkdir -p debian/sendspin-client/etc/sendspin-client
 	cp debian/sendspin-client.conf debian/sendspin-client/etc/sendspin-client/
 	cp debian/sendspin-client.conf.example debian/sendspin-client/etc/sendspin-client/

@@ -59,7 +59,7 @@ sudo apt --fix-broken install
 
 The package installs:
 - `/usr/bin/sendspin-client` - Main executable
-- `/lib/systemd/system/sendspin-client.service` - Systemd service
+- `/lib/systemd/system/sendspin-client.service` or `/usr/lib/systemd/system/sendspin-client.service` - Systemd service (path depends on Debian version)
 - `/etc/sendspin-client/sendspin-client.conf` - Configuration file
 
 ## Using the Systemd Service
