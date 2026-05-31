@@ -68,7 +68,7 @@ target_include_directories(sendspin-client PRIVATE
 # CPack configuration for Debian package
 set(CPACK_GENERATOR "DEB")
 set(CPACK_DEBIAN_PACKAGE_NAME "sendspin-client")
-set(CPACK_DEBIAN_PACKAGE_VERSION "0.1.0")
+set(CPACK_DEBIAN_PACKAGE_VERSION "0.1.1")
 # Use the actual build architecture instead of hardcoding
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm" OR CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
     if(CMAKE_SIZEOF_VOID_P EQUAL 8)

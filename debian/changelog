@@ -1,3 +1,13 @@
+sendspin-client (0.1.1-1) unstable; urgency=medium
+
+  * New upstream release
+  * Added Ubuntu 24.04 and 26.04 support
+  * Excluded debug symbol packages from GitHub releases
+  * Improved CI/CD workflow with matrix builds
+  * Enhanced package naming with distribution suffixes
+
+ -- TermeHansen <terme@hansen>  Sun, 31 May 2026 12:00:00 +0000
+
 sendspin-client (0.1.0-1) unstable; urgency=medium
 
   * Initial release

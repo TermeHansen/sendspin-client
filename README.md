@@ -162,7 +162,7 @@ sudo systemctl start sendspin-client
 sudo systemctl status sendspin-client
 ```
 
-See `PACKAGING.md` and `CI_CD_GUIDE.md` for complete packaging and CI/CD documentation.
+The project uses GitHub Actions for automated CI/CD with support for multiple distributions including Debian Trixie, Ubuntu 24.04, and Ubuntu 26.04.
 
 ## Contributing
 
