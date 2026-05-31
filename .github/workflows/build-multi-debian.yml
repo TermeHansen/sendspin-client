@@ -185,9 +185,22 @@ jobs:
 
       - name: Create Release (if triggered by release)
         if: github.event_name == 'release'
+        run: |
+          # Create a temporary directory for release files (excluding debug symbols)
+          mkdir -p ${{ env.PARENT_DIR }}/release-upload
+          
+          # Copy all .deb files except debug symbol packages
+          find ${{ env.PARENT_DIR }}/upload -name "*.deb" ! -name "*dbgsym*" -exec cp {} ${{ env.PARENT_DIR }}/release-upload/ \;
+          
+          # List what will be uploaded to release
+          echo "Files to be uploaded to release:"
+          ls -la ${{ env.PARENT_DIR }}/release-upload/
+
+      - name: Upload Release files
+        if: github.event_name == 'release'
         uses: softprops/action-gh-release@v1
         with:
-          files: ${{ env.PARENT_DIR }}/upload/*.deb
+          files: ${{ env.PARENT_DIR }}/release-upload/*.deb
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
