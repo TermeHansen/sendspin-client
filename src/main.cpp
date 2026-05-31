@@ -278,7 +278,7 @@ int main(int argc, char* argv[]) {
     config.name = friendly_name;
     config.product_name = "sendspin-cpp host example";
     config.manufacturer = "sendspin-cpp";
-    config.software_version = "0.1.0";
+    config.software_version = "0.1.1";
 
     // Create audio output and client
 #ifdef SENDSPIN_HAS_PORTAUDIO
