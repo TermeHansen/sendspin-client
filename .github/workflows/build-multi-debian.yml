@@ -11,10 +11,13 @@ env:
 jobs:
   # --- Job 1: Build amd64 on GitHub-hosted runner ---
   build-amd64:
-    name: Build amd64
+    name: Build amd64 (${{ matrix.os }})
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [debian:trixie, ubuntu:24.04, ubuntu:26.04]
     container:
-      image: debian:trixie  # or ${{ matrix.debian }} if you want to matrix this
+      image: ${{ matrix.os }}
     steps:
       - name: Set up environment
         run: |
@@ -50,10 +53,17 @@ jobs:
           # Build
           dpkg-buildpackage -us -uc -b
 
+          # Determine distribution name from matrix.os
+          if [[ "${{ matrix.os }}" == "ubuntu:*" ]]; then
+            DIST_NAME="$(echo "${{ matrix.os }}" | cut -d':' -f2)"
+          else
+            DIST_NAME="$(echo "${{ matrix.os }}" | cut -d':' -f2)"
+          fi
+
           # Rename to include architecture and distribution
           for deb in ../${{ env.DEB_PACKAGE_NAME }}*.deb; do
             if [ -f "$deb" ]; then
-              new_name="$(echo "$deb" | sed "s/.deb$/_bullseye.deb/")"
+              new_name="$(echo "$deb" | sed "s/.deb$/._${DIST_NAME}.deb/")"
               mv "$deb" "$new_name"
             fi
           done
@@ -62,8 +72,10 @@ jobs:
           mkdir -p ${{ env.PARENT_DIR }}/upload
           cp ${{ env.PARENT_DIR }}/*.deb ${{ env.PARENT_DIR }}/upload/.
 
-      - name: List uploaded files (amd64)
-        run: ls -la ${{ env.PARENT_DIR }}/upload
+      - name: List uploaded files (amd64 - ${{ matrix.os }})
+        run: |
+          echo "Files built for ${{ matrix.os }}:"
+          ls -la ${{ env.PARENT_DIR }}/upload
 
       - name: Upload amd64 artifacts (temporary)
         uses: actions/upload-artifact@v7  # Use v3 for compatibility
