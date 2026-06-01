@@ -65,10 +65,17 @@ target_include_directories(sendspin-client PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}/src/common
 )
 
+# Read version from version.txt file
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/version.txt" PROJECT_VERSION)
+string(STRIP "${PROJECT_VERSION}" PROJECT_VERSION)
+
 # CPack configuration for Debian package
 set(CPACK_GENERATOR "DEB")
 set(CPACK_DEBIAN_PACKAGE_NAME "sendspin-client")
-set(CPACK_DEBIAN_PACKAGE_VERSION "0.1.2")
+set(CPACK_DEBIAN_PACKAGE_VERSION "${PROJECT_VERSION}")
+
+# Pass version to C++ code as a compile definition
+add_definitions(-DPROJECT_VERSION="${PROJECT_VERSION}")
 # Use the actual build architecture instead of hardcoding
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "arm" OR CMAKE_SYSTEM_PROCESSOR MATCHES "aarch64")
     if(CMAKE_SIZEOF_VOID_P EQUAL 8)
