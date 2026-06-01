@@ -1,3 +1,7 @@
+sendspin-client (0.1.2-1) unstable; urgency=medium
+
+  * fixed Ubuntu 24.04 and 26.04 release packages
+
 sendspin-client (0.1.1-1) unstable; urgency=medium
 
   * New upstream release
@@ -6,14 +10,10 @@ sendspin-client (0.1.1-1) unstable; urgency=medium
   * Improved CI/CD workflow with matrix builds
   * Enhanced package naming with distribution suffixes
 
- -- TermeHansen <terme@hansen>  Sun, 31 May 2026 12:00:00 +0000
-
 sendspin-client (0.1.0-1) unstable; urgency=medium
 
   * Initial release
   * Based on sendspin-cpp v0.4.0
   * Enhanced PortAudio support with ALSA hardware volume control
   * Systemd service integration
-
- -- TermeHansen <terme@hansen>  Wed, 15 May 2024 22:55:00 +0000
 
