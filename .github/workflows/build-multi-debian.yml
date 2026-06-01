@@ -22,6 +22,10 @@ jobs:
       - name: Set up environment
         run: |
           echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
+          DIST_NAME="${{ matrix.os }}" 
+          DIST_NAME="${DIST_NAME//:/_}"  # Replace : with _
+          echo "DIST_NAME=${DIST_NAME}" >> $GITHUB_ENV
+
 
       - name: Install build dependencies
         run: |
@@ -53,17 +57,10 @@ jobs:
           # Build
           dpkg-buildpackage -us -uc -b
 
-          # Determine distribution name from matrix.os
-          if [[ "${{ matrix.os }}" == "ubuntu:*" ]]; then
-            DIST_NAME="$(echo "${{ matrix.os }}" | cut -d':' -f2)"
-          else
-            DIST_NAME="$(echo "${{ matrix.os }}" | cut -d':' -f2)"
-          fi
-
           # Rename to include architecture and distribution
           for deb in ../${{ env.DEB_PACKAGE_NAME }}*.deb; do
             if [ -f "$deb" ]; then
-              new_name="$(echo "$deb" | sed "s/.deb$/._${DIST_NAME}.deb/")"
+              new_name="$(echo "$deb" | sed "s/.deb$/._${env.DIST_NAME}.deb/")"
               mv "$deb" "$new_name"
             fi
           done
@@ -80,7 +77,7 @@ jobs:
       - name: Upload amd64 artifacts (temporary)
         uses: actions/upload-artifact@v7  # Use v3 for compatibility
         with:
-          name: amd64-${{ matrix.os }}
+          name: amd64-${{ env.DIST_NAME }}
           path: ${{ env.PARENT_DIR }}/upload/*.deb
           retention-days: 1  # Short retention since we'll re-upload later
 
