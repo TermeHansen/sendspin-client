@@ -66,7 +66,7 @@ target_include_directories(sendspin-client PRIVATE
 )
 
 # Read version from version.txt file
-file(READ "${CMAKE_CURRENT_SOURCE_DIR}/version.txt" PROJECT_VERSION)
+file(READ "${CMAKE_CURRENT_SOURCE_DIR}/VERSION" PROJECT_VERSION)
 string(STRIP "${PROJECT_VERSION}" PROJECT_VERSION)
 
 # CPack configuration for Debian package
