@@ -2,7 +2,7 @@ sendspin-client (0.1.2-1) unstable; urgency=medium
 
   * fixed Ubuntu 24.04 and 26.04 release packages
 
- -- TermeHansen <terme@hansen>  Mon, 1 June 2026 12:00:00 +0000
+ -- TermeHansen <terme@hansen>  Mon, 01 Jun 2026 12:00:00 +0000
 
 sendspin-client (0.1.1-1) unstable; urgency=medium
 
