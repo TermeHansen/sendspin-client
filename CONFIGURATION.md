@@ -19,6 +19,7 @@ ANOTHER_KEY = "quoted value"
 | `FRIENDLY_NAME` | string | "SendSpin Client" | Friendly name shown to other devices |
 | `AUDIO_DEVICE` | integer | -1 (default) | Audio device index to use |
 | `ALSA_MIXER_SPEC` | string | "" (empty) | ALSA mixer specification (format: "card:control") |
+| `IDLE_TIMEOUT` | integer | 0 (disabled) | Idle timeout in seconds before releasing the audio device |
 | `LOG_LEVEL` | string | "info" | Log level: none, error, warn, info, debug, verbose |
 | `CONNECT_URL` | string | "" (empty) | WebSocket URL to connect to (leave empty to listen) |
 | `ENABLE_MDNS` | boolean | true | Enable mDNS service advertisement |
@@ -45,6 +46,9 @@ LOG_LEVEL = "info"
 
 # Enable mDNS advertisement
 ENABLE_MDNS = true
+
+# Release the audio hardware so other apps can use it when stopped for 60s
+IDLE_TIMEOUT = 60
 ```
 
 ## 🚀 Usage
@@ -60,6 +64,9 @@ ENABLE_MDNS = true
 
 # With ALSA mixer
 ./sendspin-client -m "1:Digital" "My Client"
+
+# With Idle Timeout (e.g. 30 seconds)
+./sendspin-client -t 30 "My Client"
 ```
 
 ### Configuration File Only
@@ -147,6 +154,7 @@ FRIENDLY_NAME = "Music Server"
 AUDIO_DEVICE = 1
 ALSA_MIXER_SPEC = "1:PCM"
 ENABLE_MDNS = true
+IDLE_TIMEOUT = 10
 ```
 
 ### Development Configuration
@@ -224,6 +232,7 @@ Options:
   -d DEVICE     Select audio device by index (use -L to list devices)
   -m MIXER      Use ALSA hardware mixer for volume control
   -c FILE       Use configuration file (default: /etc/sendspin-client/sendspin-client.conf)
+  -t SECONDS    Idle timeout in seconds before releasing audio device (0 = disable, default)
   -L            List available audio devices and exit
   -h            Show this help
 ```
@@ -252,6 +261,9 @@ CONNECT_URL=""
 
 # Enable/disable mDNS service advertisement
 ENABLE_MDNS=true
+
+# Idle timeout in seconds before releasing the audio device (0 = disable)
+IDLE_TIMEOUT=0
 ```
 
 ## 🎯 Best Practices
