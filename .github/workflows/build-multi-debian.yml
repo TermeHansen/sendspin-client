@@ -128,7 +128,7 @@ jobs:
           fi
 
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
@@ -155,6 +155,14 @@ jobs:
 
       - name: List uploaded files (${{ matrix.arch }})
         run: ls -la ${{ env.PARENT_DIR }}/upload
+
+      # Upload ARM artifacts so Job 3 can collect them
+      - name: Upload arm artifacts (temporary)
+        uses: actions/upload-artifact@v7
+        with:
+          name: arm-${{ matrix.arch }}-${{ matrix.debian }}
+          path: ${{ env.PARENT_DIR }}/upload/*.deb
+          retention-days: 1
 
       - name: Clean up
         run: |
@@ -208,9 +216,15 @@ jobs:
 
       - name: Upload Release files
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@v2
         with:
           files: ${{ env.PARENT_DIR }}/release-upload/*.deb
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Clean up
+        run: |
+          # Clean up build directories to prevent permission issues
+          echo "Cleaning up build directories..."
+          rm -rf obj-*-linux-gnu*

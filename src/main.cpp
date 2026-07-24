@@ -22,19 +22,20 @@
 ///   name:  Optional friendly name (default: "Basic Client")
 ///
 /// Options:
-///   -u URL    Connect to a WebSocket URL (e.g. ws://192.168.1.10:8928/sendspin)
-///   -l LEVEL  Set log level: none, error, warn, info (default), debug, verbose
-///   -v        Verbose logging (same as -l verbose)
-///   -q        Quiet logging (same as -l error)
-///   -L        List available audio devices and exit
-///   -d DEVICE Select audio device by index (use -L to list devices)
-///   -m MIXER  Use ALSA hardware mixer for volume control (format: card:control, e.g., "1:Digital")
-///   -h        Show usage
+///   -u URL        Connect to a WebSocket URL (e.g. ws://192.168.1.10:8928/sendspin)
+///   -l LEVEL      Set log level: none, error, warn, info (default), debug, verbose
+///   -v            Verbose logging (same as -l verbose)
+///   -q            Quiet logging (same as -l error)
+///   -L            List available audio devices and exit
+///   -d DEVICE     Select audio device by index (use -L to list devices)
+///   -m MIXER      Use ALSA hardware mixer for volume control (format: card:control, e.g., "1:Digital")
+///   -c FILE       Use configuration file (default: /etc/sendspin-client/sendspin-client.conf)
+///   -t SECONDS    Idle timeout in seconds before releasing audio device (0 = disable, default)
+///   -h            Show usage
 
 #include "sendspin/client.h"
 #include "sendspin/controller_role.h"
 #include "sendspin/metadata_role.h"
-#include "sendspin/player_role.h"
 #include "sendspin/player_role.h"
 #ifdef SENDSPIN_HAS_PORTAUDIO
 #include "portaudio_sink.h"
@@ -136,6 +137,7 @@ static void print_usage(const char* prog) {
     fprintf(stderr, "  -d DEVICE     Select audio device by index (use -L to list devices)\n");
     fprintf(stderr, "  -m MIXER      Use ALSA hardware mixer for volume control (format: card:control, e.g., \"1:Digital\")\n");
     fprintf(stderr, "  -c FILE       Use configuration file (default: /etc/sendspin-client/sendspin-client.conf)\n");
+    fprintf(stderr, "  -t SECONDS    Idle timeout in seconds before releasing audio device (0 = disable, default)\n");
     fprintf(stderr, "  -h            Show this help\n");
 }
 
@@ -161,8 +163,9 @@ int main(int argc, char* argv[]) {
     bool list_devices = false;
     std::string alsa_mixer_spec;
     std::string config_file;
+    int idle_timeout_s = 0;
     int opt;
-    while ((opt = getopt(argc, argv, "u:l:vqhd:m:Lc:")) != -1) {
+    while ((opt = getopt(argc, argv, "u:l:vqhd:m:Lc:t:")) != -1) {
         switch (opt) {
             case 'u':
                 connect_url = optarg;
@@ -192,6 +195,9 @@ int main(int argc, char* argv[]) {
             case 'L':
                 list_devices = true;
                 break;
+            case 't':
+                idle_timeout_s = std::atoi(optarg);
+                break;
             case 'h':
                 print_usage(argv[0]);
                 return 0;
@@ -215,8 +221,6 @@ int main(int argc, char* argv[]) {
     // Try to load the configuration file
     if (!config_file.empty() || access(effective_config_file.c_str(), R_OK) == 0) {
         if (config_parser.parse(effective_config_file)) {
-            fprintf(stderr, "Loaded configuration from %s\n", effective_config_file.c_str());
-            
             // Override command-line options with config file values if not specified
             if (connect_url.empty() && config_parser.has_key("CONNECT_URL")) {
                 connect_url = config_parser.get_string("CONNECT_URL");
@@ -228,6 +232,10 @@ int main(int argc, char* argv[]) {
             
             if (alsa_mixer_spec.empty() && config_parser.has_key("ALSA_MIXER_SPEC")) {
                 alsa_mixer_spec = config_parser.get_string("ALSA_MIXER_SPEC");
+            }
+
+            if (idle_timeout_s == 0 && config_parser.has_key("IDLE_TIMEOUT")) {
+                idle_timeout_s = config_parser.get_int("IDLE_TIMEOUT", 0);
             }
             
             // Set log level from config if not specified on command line
@@ -252,8 +260,33 @@ int main(int argc, char* argv[]) {
         friendly_name = argv[optind];
     }
 
-    // Handle device listing request
+    // --- STARTUP LOGGING BLOCK ---
+    fprintf(stderr, "\n");
+    fprintf(stderr, "=================================================================\n");
+    fprintf(stderr, " Sendspin Client - Version: %s\n", PROJECT_VERSION);
+    fprintf(stderr, " Build Date: %s %s\n", __DATE__, __TIME__);
+    fprintf(stderr, "=================================================================\n");
+    fprintf(stderr, " Active Configuration:\n");
+    fprintf(stderr, "  Config File   : %s\n", effective_config_file.c_str());
+    fprintf(stderr, "  Friendly Name : %s\n", friendly_name.c_str());
+    fprintf(stderr, "  Audio Device  : %d\n", audio_device_index);
+    fprintf(stderr, "  ALSA Mixer    : %s\n", alsa_mixer_spec.empty() ? "None" : alsa_mixer_spec.c_str());
+    fprintf(stderr, "  Connect URL   : %s\n", connect_url.empty() ? "Listen Mode (Server)" : connect_url.c_str());
+    fprintf(stderr, "  Idle Timeout  : %s\n", idle_timeout_s == 0 ? "inaktiv" : (std::to_string(idle_timeout_s) + " seconds").c_str());
+    const char* log_level_str = "info";
+    switch (log_level) {
+        case LogLevel::NONE: log_level_str = "none"; break;
+        case LogLevel::ERROR: log_level_str = "error"; break;
+        case LogLevel::WARN: log_level_str = "warn"; break;
+        case LogLevel::INFO: log_level_str = "info"; break;
+        case LogLevel::DEBUG: log_level_str = "debug"; break;
+        case LogLevel::VERBOSE: log_level_str = "verbose"; break;
+    }
+    fprintf(stderr, "  Log Level     : %s\n", log_level_str);
+    fprintf(stderr, "=================================================================\n\n");
+    // --- END STARTUP LOGGING BLOCK ---
 
+    // Handle device listing request
 #ifdef SENDSPIN_HAS_PORTAUDIO
     if (list_devices) {
         // Initialize PortAudio just to list devices
@@ -361,11 +394,19 @@ int main(int argc, char* argv[]) {
     // --- Listener implementations ---
 
     struct BasicPlayerListener : PlayerRoleListener {
+        bool stream_active{false};
+        bool device_open{false};
+        std::chrono::steady_clock::time_point last_stream_end_time{std::chrono::steady_clock::now()};
+        int idle_timeout_s{0};
+
 #ifdef SENDSPIN_HAS_PORTAUDIO
         PortAudioSink& sink;
         PlayerRole& player;
         int audio_device_index;
-        BasicPlayerListener(PortAudioSink& s, PlayerRole& p, int device_index) : sink(s), player(p), audio_device_index(device_index) {}
+        BasicPlayerListener(PortAudioSink& s, PlayerRole& p, int device_index, int timeout_s) 
+            : idle_timeout_s(timeout_s), sink(s), player(p), audio_device_index(device_index) {}
+#else
+        BasicPlayerListener(int timeout_s) : idle_timeout_s(timeout_s) {}
 #endif
 
         size_t on_audio_write(uint8_t* data, size_t length, uint32_t timeout_ms) override {
@@ -381,6 +422,8 @@ int main(int argc, char* argv[]) {
 
         void on_stream_start() override {
             fprintf(stderr, ">>> Stream started\n");
+            this->stream_active = true;
+            this->device_open = true;
 #ifdef SENDSPIN_HAS_PORTAUDIO
             auto& params = player.get_current_stream_params();
             if (params.sample_rate.has_value() && params.channels.has_value() &&
@@ -394,12 +437,17 @@ int main(int argc, char* argv[]) {
 
         void on_stream_end() override {
             fprintf(stderr, ">>> Stream ended\n");
+            this->stream_active = false;
+            this->last_stream_end_time = std::chrono::steady_clock::now();
+            
+            if (this->idle_timeout_s > 0) {
+                fprintf(stderr, ">>> Audio device will be released in %d seconds if idle\n", this->idle_timeout_s);
+            }
+
 #ifdef SENDSPIN_HAS_PORTAUDIO
             sink.clear();
 #endif
         }
-
-
 
 #ifdef SENDSPIN_HAS_PORTAUDIO
         void on_volume_changed(uint8_t vol) override { sink.set_volume(vol); }
@@ -429,12 +477,12 @@ int main(int argc, char* argv[]) {
     };
 
 #ifdef SENDSPIN_HAS_PORTAUDIO
-    BasicPlayerListener player_listener(audio_sink, player, audio_device_index);
+    BasicPlayerListener player_listener(audio_sink, player, audio_device_index, idle_timeout_s);
     audio_sink.on_frames_played = [&player](uint32_t frames, int64_t timestamp) {
         player.notify_audio_played(frames, timestamp);
     };
 #else
-    BasicPlayerListener player_listener;
+    BasicPlayerListener player_listener(idle_timeout_s);
 #endif
     BasicMetadataListener metadata_listener;
     BasicClientListener client_listener;
@@ -489,6 +537,17 @@ int main(int argc, char* argv[]) {
             if (current_muted != last_muted) {
                 audio_sink.set_muted(current_muted);
                 last_muted = current_muted;
+            }
+        }
+
+        // Idle timeout check to release audio device
+        if (idle_timeout_s > 0 && !player_listener.stream_active && player_listener.device_open) {
+            auto now = std::chrono::steady_clock::now();
+            auto elapsed = std::chrono::duration_cast<std::chrono::seconds>(now - player_listener.last_stream_end_time).count();
+            if (elapsed >= idle_timeout_s) {
+                fprintf(stderr, ">>> Idle timeout reached (%d s), releasing audio device\n", idle_timeout_s);
+                audio_sink.stop();
+                player_listener.device_open = false;
             }
         }
 #else

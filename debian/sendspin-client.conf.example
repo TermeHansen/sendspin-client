@@ -29,6 +29,11 @@
 # Default: "" (empty)
 # ALSA_MIXER_SPEC = "1:Digital"
 
+# Idle timeout in seconds before releasing the audio device
+# This allows other applications to use the audio hardware when SendSpin is not playing.
+# 0 = disabled (device stays open permanently)
+# Default: 0
+# IDLE_TIMEOUT = 60
 
 # ====================================
 # NETWORK SETTINGS

@@ -9,6 +9,7 @@ A feature-rich SendSpin client implementation based on the [sendspin-cpp](https:
 - **Hardware Volume Control**: ALSA mixer support for direct hardware volume control on Linux
 - **Automatic Discovery**: mDNS/zeroconf service advertisement for easy device discovery
 - **Multi-Format Support**: Automatic detection and negotiation of supported audio formats (FLAC, OPUS, PCM)
+- **Auto Device Release**: Optional idle timeout to automatically release audio hardware for other applications
 - **Cross-Platform**: Works on Linux, macOS, and Windows (with appropriate dependencies)
 
 ## Requirements
@@ -58,6 +59,9 @@ make
 # Use ALSA hardware mixer for volume control
 ./sendspin-client -m "1:Digital" "My Client"
 
+# Automatically release audio device after 30 seconds of inactivity
+./sendspin-client -t 30 "My Client"
+
 # Verbose logging
 ./sendspin-client -v "My Client"
 
@@ -71,6 +75,7 @@ make
 - Automatic format detection and negotiation
 - Device-specific sample rate support
 - Multi-channel audio support (up to device capabilities)
+- Automatic device release to share hardware with other processes
 
 ### Volume Control
 - Software volume mixing (cross-platform)
@@ -114,6 +119,9 @@ AUDIO_DEVICE = 1
 
 # ALSA mixer for hardware volume
 ALSA_MIXER_SPEC = "1:Digital"
+
+# Auto-release hardware after 60 seconds
+IDLE_TIMEOUT = 60
 
 # Log level
 LOG_LEVEL = "info"
