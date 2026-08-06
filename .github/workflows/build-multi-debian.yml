@@ -157,12 +157,12 @@ jobs:
         run: ls -la ${{ env.PARENT_DIR }}/upload
 
       # Upload ARM artifacts so Job 3 can collect them
-      - name: Upload arm artifacts (temporary)
-        uses: actions/upload-artifact@v7
-        with:
-          name: arm-${{ matrix.arch }}-${{ matrix.debian }}
-          path: ${{ env.PARENT_DIR }}/upload/*.deb
-          retention-days: 1
+#      - name: Upload arm artifacts (temporary)
+#        uses: actions/upload-artifact@v7
+#        with:
+#          name: arm-${{ matrix.arch }}-${{ matrix.debian }}
+#          path: ${{ env.PARENT_DIR }}/upload/*.deb
+#          retention-days: 1
 
       - name: Clean up
         run: |
