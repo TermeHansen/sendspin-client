@@ -34,7 +34,6 @@
 ///   -h            Show usage
 
 #include "sendspin/client.h"
-#include "sendspin/controller_role.h"
 #include "sendspin/metadata_role.h"
 #include "sendspin/player_role.h"
 #ifdef SENDSPIN_HAS_PORTAUDIO
@@ -385,11 +384,7 @@ int main(int argc, char* argv[]) {
         player.update_muted(current_mute);
     }
     
-    auto& controller = client.add_controller();
     auto& metadata = client.add_metadata();
-
-    // Suppress unused variable warnings for roles used only for their side effects
-    (void)controller;
 
     // --- Listener implementations ---
 
