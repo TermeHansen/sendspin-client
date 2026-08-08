@@ -82,20 +82,25 @@ jobs:
           path: ${{ env.PARENT_DIR }}/upload/*.deb
           retention-days: 1  # Short retention since we'll re-upload later
 
-  # --- Job 2: Build armhf and arm64 on self-hosted runner ---
+  # --- Job 2: Build armhf, arm64, and armv6 on self-hosted runner ---
   build-arm:
     name: Build arm (${{ matrix.arch }})
     runs-on: self-hosted
     strategy:
       fail-fast: false
       matrix:
-        arch: [armhf, arm64]
+        arch: [armhf, arm64, armv6]
         debian: [bullseye, trixie]
         include:
           - arch: "armhf"
             image_prefix: "arm32v7/debian:"
+            build_flags: ""
           - arch: "arm64"
             image_prefix: "debian:"
+            build_flags: ""
+          - arch: "armv6"
+            image_prefix: "arm32v7/debian:"
+            build_flags: "CXXFLAGS=-march=armv6 -mfpu=vfp -mfloat-abi=hard CFLAGS=-march=armv6 -mfpu=vfp -mfloat-abi=hard"
     container:
       image: ${{ matrix.image_prefix }}${{ matrix.debian }}
 
@@ -138,13 +143,13 @@ jobs:
           rm -f ../${{ env.DEB_PACKAGE_NAME }}_*.deb
           rm -f ../${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb
 
-          # Build for the correct architecture
-          dpkg-buildpackage -us -uc -b
+          # Build with architecture-specific flags
+          ${{ matrix.build_flags }} dpkg-buildpackage -us -uc -b
 
           # Rename to include architecture and distribution
           for deb in ../${{ env.DEB_PACKAGE_NAME }}*.deb; do
             if [ -f "$deb" ]; then
-              new_name="$(echo "$deb" | sed "s/.deb$/_${{ matrix.debian }}.deb/")"
+              new_name="$(echo "$deb" | sed "s/.deb$/_${{ matrix.arch }}_${{ matrix.debian }}.deb/")"
               mv "$deb" "$new_name"
             fi
           done
