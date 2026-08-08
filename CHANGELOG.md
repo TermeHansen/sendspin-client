@@ -12,7 +12,7 @@ All notable changes to this project will be documented in this file.
 ### Changed
 - Unified version management to use single source from `version.txt`
 - Updated sendspin-cpp dependency from v0.6.1 to v0.7.0
-
+- remove unused controller code
 
 ## [0.1.2] - 2026-06-01
 
