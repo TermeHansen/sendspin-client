@@ -97,10 +97,8 @@ jobs:
             build_flags: ""
           - arch: "arm64"
             image_prefix: "debian:"
-            build_flags: ""
           - arch: "armv6"
             image_prefix: "arm32v7/debian:"
-            build_flags: "CXXFLAGS=-march=armv6 -mfpu=vfp -mfloat-abi=hard CFLAGS=-march=armv6 -mfpu=vfp -mfloat-abi=hard"
     container:
       image: ${{ matrix.image_prefix }}${{ matrix.debian }}
 
@@ -143,8 +141,14 @@ jobs:
           rm -f ../${{ env.DEB_PACKAGE_NAME }}_*.deb
           rm -f ../${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb
 
-          # Build with architecture-specific flags
-          ${{ matrix.build_flags }} dpkg-buildpackage -us -uc -b
+          # Set architecture-specific flags for armv6
+          if [ "${{ matrix.arch }}" = "armv6" ]; then
+            export CXXFLAGS="-march=armv6 -mfpu=vfp -mfloat-abi=hard"
+            export CFLAGS="-march=armv6 -mfpu=vfp -mfloat-abi=hard"
+          fi
+
+          # Build
+          dpkg-buildpackage -us -uc -b
 
           # Rename to include architecture and distribution
           for deb in ../${{ env.DEB_PACKAGE_NAME }}*.deb; do
