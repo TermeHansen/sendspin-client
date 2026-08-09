@@ -143,9 +143,7 @@ jobs:
 
           # Set architecture-specific flags for armv6
           if [ "${{ matrix.arch }}" = "armv6" ]; then
-            export CXXFLAGS="-marm -march=armv6 -mfpu=vfp -mfloat-abi=hard"
-            export CFLAGS="-marm -march=armv6 -mfpu=vfp -mfloat-abi=hard"
-            export LDFLAGS="-latomic"
+            export DEB_HOST_ARCH=armv6
           fi
 
           # Build
