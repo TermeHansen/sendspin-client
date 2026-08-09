@@ -142,17 +142,20 @@ jobs:
           rm -f ../${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb
 
           # Set architecture-specific flags for armv6
-          if [ "${{ matrix.arch }}" = "armv6" ]; then
-            export CUSTOM_ARCH=armv6
-          fi
+          export MATRIX_ARCH="${{ matrix.arch }}"
 
           # Build
           dpkg-buildpackage -us -uc -b
 
-          # Rename to include architecture and distribution
+          # Rename to include distribution and handle armv6 architecture
           for deb in ../${{ env.DEB_PACKAGE_NAME }}*.deb; do
             if [ -f "$deb" ]; then
-              new_name="$(echo "$deb" | sed "s/.deb$/_${{ matrix.arch }}_${{ matrix.debian }}.deb/")"
+              # For armv6, replace armhf with armv6 in the filename
+              if [ "${{ matrix.arch }}" = "armv6" ]; then
+                new_name="$(echo "$deb" | sed "s/armhf/armv6/g" | sed "s/.deb$/_${{ matrix.debian }}.deb/")"
+              else
+                new_name="$(echo "$deb" | sed "s/.deb$/_${{ matrix.debian }}.deb/")"
+              fi
               mv "$deb" "$new_name"
             fi
           done
