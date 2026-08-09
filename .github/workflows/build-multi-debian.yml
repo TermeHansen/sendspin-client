@@ -143,7 +143,7 @@ jobs:
 
           # Set architecture-specific flags for armv6
           if [ "${{ matrix.arch }}" = "armv6" ]; then
-            export DEB_HOST_ARCH=armv6
+            export CUSTOM_ARCH=armv6
           fi
 
           # Build

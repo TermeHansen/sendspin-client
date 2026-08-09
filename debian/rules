@@ -5,9 +5,9 @@
 
 override_dh_auto_configure:
 	# Use ARMv6 toolchain for Raspberry Pi 1 builds
-	ifneq (,$(filter armv6,$(DEB_HOST_ARCH)))
-		TOOLCHAIN_FLAG=-DCMAKE_TOOLCHAIN_FILE=cmake/armv6-toolchain.cmake
-	endif
+	if [ "$(CUSTOM_ARCH)" = "armv6" ]; then \
+		TOOLCHAIN_FLAG=-DCMAKE_TOOLCHAIN_FILE=cmake/armv6-toolchain.cmake; \
+	fi
 	dh_auto_configure -- \
 		-DBUILD_EXAMPLES=OFF \
 		-DCMAKE_BUILD_TYPE=Release \
