@@ -94,7 +94,6 @@ jobs:
         include:
           - arch: "armhf"
             image_prefix: "arm32v7/debian:"
-            build_flags: ""
           - arch: "arm64"
             image_prefix: "debian:"
           - arch: "armv6"
