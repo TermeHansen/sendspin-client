@@ -2,15 +2,13 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
-
 ## [0.2.0] - 2026-08-09
 
 ### Added
 - Auto-release of audio device on idle timeout for player role
 
 ### Changed
-- Unified version management to use single source from `version.txt`
+- Unified version management to use single source from `VERSION`
 - Updated sendspin-cpp dependency from v0.6.1 to v0.7.0
 - Remove unused controller code
 - Add armv6 (RPi 1) to release
