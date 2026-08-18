@@ -24,7 +24,7 @@ jobs:
         run: |
           echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
           DIST_NAME="${{ matrix.os }}" 
-          DIST_NAME="${DIST_NAME//:/_}"  # Replace : with _
+          DIST_NAME=$(echo "$DIST_NAME" | sed 's/:/_/g')  # Replace : with _
           echo "DIST_NAME=${DIST_NAME}" >> $GITHUB_ENV
 
 
@@ -91,7 +91,7 @@ jobs:
       fail-fast: false
       matrix:
         arch: [armhf, arm64, armv6]
-        os: [debian:bullseye, debian:trixie, ubuntu:24.04, ubuntu:26.04]
+        os: [debian:bullseye, debian:trixie, ubuntu:26.04]
         include:
           - arch: "armhf"
             image_prefix: "arm32v7/"
@@ -150,7 +150,8 @@ jobs:
 
           # Rename to include distribution and handle armv6 architecture
           DIST_NAME="${{ matrix.os }}"
-          DIST_NAME="${DIST_NAME//:/_}"  # Replace : with _
+          # Replace : with _ using sed for compatibility
+          DIST_NAME=$(echo "$DIST_NAME" | sed 's/:/_/g')
           for deb in ../${{ env.DEB_PACKAGE_NAME }}*.deb; do
             if [ -f "$deb" ]; then
               # For armv6, replace armhf with armv6 in the filename
