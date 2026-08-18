@@ -40,7 +40,8 @@ jobs:
             portaudio19-dev \
             libasound2-dev \
             libavahi-compat-libdnssd-dev \
-            avahi-daemon
+            avahi-daemon \
+            libatomic1
         env:
           DEBIAN_FRONTEND: noninteractive
 
@@ -90,16 +91,16 @@ jobs:
       fail-fast: false
       matrix:
         arch: [armhf, arm64, armv6]
-        debian: [bullseye, trixie]
+        os: [debian:bullseye, debian:trixie, ubuntu:24.04, ubuntu:26.04]
         include:
           - arch: "armhf"
-            image_prefix: "arm32v7/debian:"
+            image_prefix: "arm32v7/"
           - arch: "arm64"
-            image_prefix: "debian:"
+            image_prefix: ""
           - arch: "armv6"
-            image_prefix: "arm32v7/debian:"
+            image_prefix: "arm32v7/"
     container:
-      image: ${{ matrix.image_prefix }}${{ matrix.debian }}
+      image: ${{ matrix.image_prefix }}${{ matrix.os }}
 
     steps:
       - name: Set up environment
@@ -148,13 +149,15 @@ jobs:
           dpkg-buildpackage -us -uc -b
 
           # Rename to include distribution and handle armv6 architecture
+          DIST_NAME="${{ matrix.os }}"
+          DIST_NAME="${DIST_NAME//:/_}"  # Replace : with _
           for deb in ../${{ env.DEB_PACKAGE_NAME }}*.deb; do
             if [ -f "$deb" ]; then
               # For armv6, replace armhf with armv6 in the filename
               if [ "${{ matrix.arch }}" = "armv6" ]; then
-                new_name="$(echo "$deb" | sed "s/armhf/armv6/g" | sed "s/.deb$/_${{ matrix.debian }}.deb/")"
+                new_name="$(echo "$deb" | sed "s/armhf/armv6/g" | sed "s/.deb$/_${DIST_NAME}.deb/")"
               else
-                new_name="$(echo "$deb" | sed "s/.deb$/_${{ matrix.debian }}.deb/")"
+                new_name="$(echo "$deb" | sed "s/.deb$/_${DIST_NAME}.deb/")"
               fi
               mv "$deb" "$new_name"
             fi
@@ -171,7 +174,7 @@ jobs:
 #      - name: Upload arm artifacts (temporary)
 #        uses: actions/upload-artifact@v7
 #        with:
-#          name: arm-${{ matrix.arch }}-${{ matrix.debian }}
+#          name: arm-${{ matrix.arch }}-${{ matrix.os }}
 #          path: ${{ env.PARENT_DIR }}/upload/*.deb
 #          retention-days: 1
 
