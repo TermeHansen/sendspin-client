@@ -40,8 +40,7 @@ jobs:
             portaudio19-dev \
             libasound2-dev \
             libavahi-compat-libdnssd-dev \
-            avahi-daemon \
-            libatomic1
+            avahi-daemon
         env:
           DEBIAN_FRONTEND: noninteractive
 
