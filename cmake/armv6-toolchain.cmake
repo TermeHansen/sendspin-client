@@ -24,27 +24,32 @@ set(CMAKE_MODULE_LINKER_FLAGS "${ARMv6_COMPILE_FLAGS}" CACHE INTERNAL "Module li
 # For ARMv6, we always need to link -latomic
 message(STATUS "ARMv6: Configuring libatomic support")
 
-# Explicitly add both ARM library paths to linker search
-# This ensures the linker can find libatomic in either location
-set(ARM_LIBS "-L/usr/lib/arm-linux-gnueabihf -L/usr/lib/gcc/arm-linux-gnueabihf/14 -latomic")
+# Find libatomic.so.1 explicitly in common ARM paths
+find_library(ATOMIC_LIBRARY 
+    NAMES libatomic.so.1 atomic
+    HINTS
+        /usr/lib/arm-linux-gnueabihf
+        /usr/lib/gcc/arm-linux-gnueabihf/14
+        /usr/lib
+        /lib
+)
+
+if(ATOMIC_LIBRARY)
+    message(STATUS "Found libatomic: ${ATOMIC_LIBRARY}")
+    # Get the directory containing the library
+    get_filename_component(ATOMIC_DIR ${ATOMIC_LIBRARY} DIRECTORY)
+    # Add the directory to linker search paths
+    set(ARM_LIBS "-L${ATOMIC_DIR} -latomic")
+else()
+    # Fallback: use standard ARM paths
+    message(WARNING "libatomic.so.1 not found in standard paths, using default ARM paths")
+    set(ARM_LIBS "-L/usr/lib/arm-linux-gnueabihf -L/usr/lib/gcc/arm-linux-gnueabihf/14 -latomic")
+endif()
+
+# Apply linker flags
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${ARM_LIBS}" CACHE INTERNAL "Linker flags with ARM libraries")
 set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${ARM_LIBS}" CACHE INTERNAL "Linker flags with ARM libraries")
 set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} ${ARM_LIBS}" CACHE INTERNAL "Linker flags with ARM libraries")
-
-# Also add to CMake's library search paths for find_library
-list(APPEND CMAKE_PREFIX_PATH /usr/lib/arm-linux-gnueabihf /usr/lib/gcc/arm-linux-gnueabihf/14)
-list(APPEND CMAKE_LIBRARY_PATH /usr/lib/arm-linux-gnueabihf /usr/lib/gcc/arm-linux-gnueabihf/14)
-
-# Try to find libatomic (for informational purposes)
-find_library(LIBATOMIC atomic 
-    PATHS /usr/lib/arm-linux-gnueabihf /usr/lib/gcc/arm-linux-gnueabihf/14
-    NO_DEFAULT_PATH
-)
-if(LIBATOMIC)
-    message(STATUS "Found libatomic at: ${LIBATOMIC}")
-else()
-    message(STATUS "libatomic not found via find_library, but linker paths added")
-endif()
 
 # Set find root path for cross-compilation (if needed)
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
