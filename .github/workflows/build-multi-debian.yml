@@ -39,11 +39,7 @@ jobs:
     if: ${{ github.event.inputs.arch == 'all' || github.event.inputs.arch == 'amd64' }}
     strategy:
       matrix:
-        os: ${{ github.event.inputs.os == 'all' && fromJson('[
-          "debian:trixie",
-          "ubuntu:24.04", 
-          "ubuntu:26.04"
-        ]') || fromJson(format('["{0}"]', github.event.inputs.os)) }}
+        os: ${{ github.event.inputs.os == 'all' && fromJson('["debian:trixie","ubuntu:24.04","ubuntu:26.04"]') || fromJson(format('["{0}"]', github.event.inputs.os)) }}
     container:
       image: ${{ matrix.os }}
     steps:
@@ -118,20 +114,10 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: ${{ github.event.inputs.arch == 'all' && fromJson('[
-          "armhf",
-          "arm64",
-          "armv6"
-        ]') || fromJson(format('["{0}"]', github.event.inputs.arch)) }}
-        os: ${{ github.event.inputs.os == 'all' && fromJson('[
-          "debian:bullseye",
-          "debian:trixie",
-          "ubuntu:24.04",
-          "ubuntu:26.04"
-        ]') || fromJson(format('["{0}"]', github.event.inputs.os)) }}
+        arch: ${{ github.event.inputs.arch == 'all' && fromJson('["armhf","arm64","armv6"]') || fromJson(format('["{0}"]', github.event.inputs.arch)) }}
+        os: ${{ github.event.inputs.os == 'all' && fromJson('["debian:bullseye","debian:trixie","ubuntu:24.04","ubuntu:26.04"]') || fromJson(format('["{0}"]', github.event.inputs.os)) }}
     container:
-      image: >-
-        ${{ (matrix.arch == 'arm64' && '') || 'arm32v7/' }}${{ matrix.os }}
+      image: ${{ matrix.arch == 'arm64' && matrix.os || format('arm32v7/{0}', matrix.os) }}
 
     steps:
       - name: Set up environment
