@@ -41,6 +41,12 @@ else()
     message(FATAL_ERROR "sendspin library target not found")
 endif()
 
+# For ARMv6, link libatomic explicitly at the end
+if(CMAKE_SYSTEM_PROCESSOR MATCHES "armv6l")
+    target_link_libraries(sendspin-client PRIVATE /usr/lib/arm-linux-gnueabihf/libatomic.so.1)
+    message(STATUS "ARMv6: Linked libatomic.so.1 explicitly")
+endif()
+
 # Link PortAudio if available
 if(PORTAUDIO_FOUND)
     target_link_libraries(sendspin-client PRIVATE ${PORTAUDIO_LINK_LIBRARIES})

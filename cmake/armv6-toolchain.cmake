@@ -21,7 +21,8 @@ set(CMAKE_SHARED_LINKER_FLAGS "${ARMv6_COMPILE_FLAGS}" CACHE INTERNAL "Shared li
 set(CMAKE_MODULE_LINKER_FLAGS "${ARMv6_COMPILE_FLAGS}" CACHE INTERNAL "Module linker flags for ARMv6")
 
 # Link libatomic (required for ARMv6 as it lacks hardware atomic instructions)
-# For ARMv6, we need to explicitly link the full path to libatomic.so.1
+# For ARMv6, we need to link libatomic at the END of the linker command
+# Library order matters: atomic library must come after object files that use it
 message(STATUS "ARMv6: Configuring libatomic support")
 
 # Use the full path to libatomic.so.1 that we know works
@@ -30,10 +31,9 @@ set(ATOMIC_LIB_PATH "/usr/lib/arm-linux-gnueabihf/libatomic.so.1")
 # Check if the library exists at this path
 if(EXISTS "${ATOMIC_LIB_PATH}")
     message(STATUS "Using explicit libatomic: ${ATOMIC_LIB_PATH}")
-    # Link directly with the full path
+    # For CMake, we add the library to CMAKE_EXE_LINKER_FLAGS
+    # CMake will place it at the appropriate position in the link command
     set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${ATOMIC_LIB_PATH}" CACHE INTERNAL "Linker flags with explicit atomic library")
-    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${ATOMIC_LIB_PATH}" CACHE INTERNAL "Linker flags with explicit atomic library")
-    set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} ${ATOMIC_LIB_PATH}" CACHE INTERNAL "Linker flags with explicit atomic library")
 else()
     # Fallback: try to find it
     message(WARNING "${ATOMIC_LIB_PATH} not found, trying to find libatomic")
@@ -48,8 +48,6 @@ else()
     if(ATOMIC_LIBRARY)
         message(STATUS "Found libatomic: ${ATOMIC_LIBRARY}")
         set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} ${ATOMIC_LIBRARY}" CACHE INTERNAL "Linker flags with found atomic library")
-        set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${ATOMIC_LIBRARY}" CACHE INTERNAL "Linker flags with found atomic library")
-        set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} ${ATOMIC_LIBRARY}" CACHE INTERNAL "Linker flags with found atomic library")
     else()
         message(WARNING "libatomic not found, linking may fail")
     endif()
