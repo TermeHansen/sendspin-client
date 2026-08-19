@@ -6,17 +6,15 @@
 override_dh_auto_configure:
 	# Use ARMv6 toolchain for Raspberry Pi 1 builds (armv6)
 	# MATRIX_ARCH is set in CI workflows: armv6 -> use armv6 toolchain
-	ifeq ($(MATRIX_ARCH),armv6)
-		TOOLCHAIN_FLAG = -DCMAKE_TOOLCHAIN_FILE=cmake/armv6-toolchain.cmake
-	else
-		TOOLCHAIN_FLAG =
-	endif
-	
+	TOOLCHAIN_FLAG=""; \
+	if [ "$(MATRIX_ARCH)" = "armv6" ]; then \
+		TOOLCHAIN_FLAG="-DCMAKE_TOOLCHAIN_FILE=cmake/armv6-toolchain.cmake"; \
+	fi; \
 	dh_auto_configure -- \
 		-DBUILD_EXAMPLES=OFF \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DFETCHCONTENT_FULLY_DISCONNECTED=OFF \
-		$(TOOLCHAIN_FLAG) \
+		$$TOOLCHAIN_FLAG \
 		$(CMAKEFLAGS)
 
 override_dh_auto_install:
