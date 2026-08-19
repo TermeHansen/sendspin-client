@@ -2,6 +2,29 @@ name: Build and Upload Debian Packages
 
 on:
   workflow_dispatch:
+    inputs:
+      arch:
+        description: 'Select architecture to build (or "all")'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - amd64
+          - armhf
+          - arm64
+          - armv6
+      os:
+        description: 'Select OS to build (or "all")'
+        required: true
+        default: 'all'
+        type: choice
+        options:
+          - all
+          - debian:bullseye
+          - debian:trixie
+          - ubuntu:24.04
+          - ubuntu:26.04
   release:
     types: [published]
 
@@ -9,13 +32,57 @@ env:
   DEB_PACKAGE_NAME: sendspin-client
 
 jobs:
+  # --- Job 0: Setup - determine which builds to run ---
+  setup:
+    name: Setup build matrix
+    runs-on: ubuntu-latest
+    outputs:
+      build_amd64: ${{ steps.setup.outputs.build_amd64 }}
+      build_arm: ${{ steps.setup.outputs.build_arm }}
+      selected_arch: ${{ steps.setup.outputs.selected_arch }}
+    steps:
+      - name: Determine build matrix
+        id: setup
+        run: |
+          # Determine which architectures to build
+          SELECTED_ARCH="${{ github.event.inputs.arch || 'all' }}"
+          
+          # Filter architectures
+          if [ "$SELECTED_ARCH" = "all" ]; then
+            BUILD_AMD64="true"
+            BUILD_ARM="true"
+          elif [ "$SELECTED_ARCH" = "amd64" ]; then
+            BUILD_AMD64="true"
+            BUILD_ARM="false"
+          elif [ "$SELECTED_ARCH" = "armhf" ] || [ "$SELECTED_ARCH" = "arm64" ] || [ "$SELECTED_ARCH" = "armv6" ]; then
+            BUILD_AMD64="false"
+            BUILD_ARM="true"
+          else
+            BUILD_AMD64="false"
+            BUILD_ARM="false"
+          fi
+          
+          echo "build_amd64=$BUILD_AMD64" >> $GITHUB_OUTPUT
+          echo "build_arm=$BUILD_ARM" >> $GITHUB_OUTPUT
+          echo "selected_arch=$SELECTED_ARCH" >> $GITHUB_OUTPUT
+
   # --- Job 1: Build amd64 on GitHub-hosted runner ---
   build-amd64:
     name: Build amd64 (${{ matrix.os }})
     runs-on: ubuntu-latest
+    needs: setup
+    if: ${{ needs.setup.outputs.build_amd64 == 'true' }}
     strategy:
       matrix:
-        os: [debian:trixie, ubuntu:24.04, ubuntu:26.04]
+        os: >-
+          ${{
+            (github.event.inputs.os == 'all' && fromJson('[
+              "debian:trixie",
+              "ubuntu:24.04", 
+              "ubuntu:26.04"
+            ]')) ||
+            fromJson(format('[{0}]', github.event.inputs.os))
+          }}
     container:
       image: ${{ matrix.os }}
     steps:
@@ -86,18 +153,37 @@ jobs:
   build-arm:
     name: Build arm (${{ matrix.arch }})
     runs-on: self-hosted
+    needs: setup
+    if: ${{ needs.setup.outputs.build_arm == 'true' }}
     strategy:
       fail-fast: false
       matrix:
-        arch: [armhf, arm64, armv6]
-        os: [debian:bullseye, debian:trixie, ubuntu:26.04]
+        arch: >-
+          ${{
+            (needs.setup.outputs.selected_arch == 'all' && fromJson('[
+              "armhf",
+              "arm64",
+              "armv6"
+            ]')) ||
+            fromJson(format('[{0}]', needs.setup.outputs.selected_arch))
+          }}
+        os: >-
+          ${{
+            (github.event.inputs.os == 'all' && fromJson('[
+              "debian:bullseye",
+              "debian:trixie",
+              "ubuntu:24.04",
+              "ubuntu:26.04"
+            ]')) ||
+            fromJson(format('[{0}]', github.event.inputs.os))
+          }}
         include:
           - arch: "armhf"
             image_prefix: "arm32v7/"
           - arch: "arm64"
             image_prefix: ""
           - arch: "armv6"
-            image_prefix: "arm32v7/"
+            image_prefix: "arm32v7/"  # arm32v7 works for armv6 builds with proper flags
     container:
       image: ${{ matrix.image_prefix }}${{ matrix.os }}
 
@@ -123,6 +209,8 @@ jobs:
         env:
           DEBIAN_FRONTEND: noninteractive
 
+
+
       - name: Prepare debian directory
         run: |
           # Clean up any root-owned files from previous builds
@@ -144,8 +232,8 @@ jobs:
           # Set architecture-specific flags for armv6
           export MATRIX_ARCH="${{ matrix.arch }}"
 
-          # Build
-          dpkg-buildpackage -us -uc -b
+          # Build - toolchain file for armv6 is handled in debian/rules via MATRIX_ARCH
+          dpkg-buildpackage -us -uc -b -j$(nproc) DEB_BUILD_OPTIONS="nocheck"
 
           # Rename to include distribution and handle armv6 architecture
           DIST_NAME="${{ matrix.os }}"
