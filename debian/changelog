@@ -1,16 +1,27 @@
+sendspin-client (0.2.0-1) unstable; urgency=medium
+
+  * Auto-release of audio device on idle timeout for player role
+  * Unified version management to use single source from version.txt
+  * Updated sendspin-cpp dependency from v0.6.1 to v0.7.0
+  * Remove unused controller code
+  * Add armv6 (RPi 1) arch to releases
+  * Add ubuntu 26.04 to releases
+
+ -- TermeHansen <terme@hansen>  Mon, 19 Aug 2026 12:00:00 +0000
+
 sendspin-client (0.1.2-1) unstable; urgency=medium
 
-  * fixed Ubuntu 24.04 and 26.04 release packages
+  * Fixed Ubuntu 24.04 and 26.04 release packages
 
  -- TermeHansen <terme@hansen>  Mon, 01 Jun 2026 12:00:00 +0000
 
 sendspin-client (0.1.1-1) unstable; urgency=medium
 
-  * New upstream release
   * Added Ubuntu 24.04 and 26.04 support
-  * Excluded debug symbol packages from GitHub releases
+  * New upstream release
   * Improved CI/CD workflow with matrix builds
   * Enhanced package naming with distribution suffixes
+  * Excluded debug symbol packages from GitHub releases
 
  -- TermeHansen <terme@hansen>  Sun, 31 May 2026 12:00:00 +0000
 
@@ -20,6 +31,7 @@ sendspin-client (0.1.0-1) unstable; urgency=medium
   * Based on sendspin-cpp v0.4.0
   * Enhanced PortAudio support with ALSA hardware volume control
   * Systemd service integration
+  * Fixed default system service lib on Debian
 
  -- TermeHansen <terme@hansen>  Wed, 15 May 2024 22:55:00 +0000
 

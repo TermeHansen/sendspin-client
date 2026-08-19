@@ -4,10 +4,18 @@
 	dh $@
 
 override_dh_auto_configure:
+	# Use ARMv6 toolchain for Raspberry Pi 1 builds (armv6)
+	# MATRIX_ARCH is set in CI workflows: armv6 -> use armv6 toolchain
+	TOOLCHAIN_FLAG=""
+	if [ "$(MATRIX_ARCH)" = "armv6" ]; then \
+		TOOLCHAIN_FLAG="-DCMAKE_TOOLCHAIN_FILE=cmake/armv6-toolchain.cmake"; \
+	fi
+	
 	dh_auto_configure -- \
 		-DBUILD_EXAMPLES=OFF \
 		-DCMAKE_BUILD_TYPE=Release \
 		-DFETCHCONTENT_FULLY_DISCONNECTED=OFF \
+		$(TOOLCHAIN_FLAG) \
 		$(CMAKEFLAGS)
 
 override_dh_auto_install:
@@ -15,6 +23,14 @@ override_dh_auto_install:
 	# Install executable manually
 	mkdir -p debian/sendspin-client/usr/bin
 	cp obj-$(shell dpkg-architecture -qDEB_HOST_GNU_TYPE)/sendspin-client debian/sendspin-client/usr/bin/
+	# Install systemd service file (auto-detect correct path for Debian version)
+	if [ -d /usr/lib/systemd/system ]; then \
+	    SYSTEMD_PATH="/usr/lib/systemd/system"; \
+	else \
+	    SYSTEMD_PATH="/lib/systemd/system"; \
+	fi; \
+	mkdir -p debian/sendspin-client$$SYSTEMD_PATH; \
+	cp debian/sendspin-client.service debian/sendspin-client$$SYSTEMD_PATH
 	# Install config files manually
 	mkdir -p debian/sendspin-client/etc/sendspin-client
 	cp debian/sendspin-client.conf debian/sendspin-client/etc/sendspin-client/

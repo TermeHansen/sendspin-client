@@ -308,7 +308,7 @@ int main(int argc, char* argv[]) {
     SendspinClientConfig config;
     config.client_id = client_id;
     config.name = friendly_name;
-    config.product_name = "sendspin-cpp host example";
+    config.product_name = "sendspin-client";
     config.manufacturer = "sendspin-cpp";
     config.software_version = PROJECT_VERSION;
 

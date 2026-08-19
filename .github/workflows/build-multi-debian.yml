@@ -24,7 +24,7 @@ jobs:
         run: |
           echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
           DIST_NAME="${{ matrix.os }}" 
-          DIST_NAME="${DIST_NAME//:/_}"  # Replace : with _
+          DIST_NAME=$(echo "$DIST_NAME" | sed 's/:/_/g')  # Replace : with _
           echo "DIST_NAME=${DIST_NAME}" >> $GITHUB_ENV
 
 
@@ -82,22 +82,24 @@ jobs:
           path: ${{ env.PARENT_DIR }}/upload/*.deb
           retention-days: 1  # Short retention since we'll re-upload later
 
-  # --- Job 2: Build armhf and arm64 on self-hosted runner ---
+  # --- Job 2: Build armhf, arm64, and armv6 on self-hosted runner ---
   build-arm:
     name: Build arm (${{ matrix.arch }})
     runs-on: self-hosted
     strategy:
       fail-fast: false
       matrix:
-        arch: [armhf, arm64]
-        debian: [bullseye, trixie]
+        arch: [armhf, arm64, armv6]
+        os: [debian:bullseye, debian:trixie, ubuntu:26.04]
         include:
           - arch: "armhf"
-            image_prefix: "arm32v7/debian:"
+            image_prefix: "arm32v7/"
           - arch: "arm64"
-            image_prefix: "debian:"
+            image_prefix: ""
+          - arch: "armv6"
+            image_prefix: "arm32v7/"
     container:
-      image: ${{ matrix.image_prefix }}${{ matrix.debian }}
+      image: ${{ matrix.image_prefix }}${{ matrix.os }}
 
     steps:
       - name: Set up environment
@@ -116,7 +118,8 @@ jobs:
             portaudio19-dev \
             libasound2-dev \
             libavahi-compat-libdnssd-dev \
-            avahi-daemon
+            avahi-daemon \
+            libatomic1
         env:
           DEBIAN_FRONTEND: noninteractive
 
@@ -138,13 +141,24 @@ jobs:
           rm -f ../${{ env.DEB_PACKAGE_NAME }}_*.deb
           rm -f ../${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb
 
-          # Build for the correct architecture
+          # Set architecture-specific flags for armv6
+          export MATRIX_ARCH="${{ matrix.arch }}"
+
+          # Build
           dpkg-buildpackage -us -uc -b
 
-          # Rename to include architecture and distribution
+          # Rename to include distribution and handle armv6 architecture
+          DIST_NAME="${{ matrix.os }}"
+          # Replace : with _ using sed for compatibility
+          DIST_NAME=$(echo "$DIST_NAME" | sed 's/:/_/g')
           for deb in ../${{ env.DEB_PACKAGE_NAME }}*.deb; do
             if [ -f "$deb" ]; then
-              new_name="$(echo "$deb" | sed "s/.deb$/_${{ matrix.debian }}.deb/")"
+              # For armv6, replace armhf with armv6 in the filename
+              if [ "${{ matrix.arch }}" = "armv6" ]; then
+                new_name="$(echo "$deb" | sed "s/armhf/armv6/g" | sed "s/.deb$/_${DIST_NAME}.deb/")"
+              else
+                new_name="$(echo "$deb" | sed "s/.deb$/_${DIST_NAME}.deb/")"
+              fi
               mv "$deb" "$new_name"
             fi
           done
@@ -160,7 +174,7 @@ jobs:
 #      - name: Upload arm artifacts (temporary)
 #        uses: actions/upload-artifact@v7
 #        with:
-#          name: arm-${{ matrix.arch }}-${{ matrix.debian }}
+#          name: arm-${{ matrix.arch }}-${{ matrix.os }}
 #          path: ${{ env.PARENT_DIR }}/upload/*.deb
 #          retention-days: 1
 
