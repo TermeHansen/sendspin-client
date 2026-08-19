@@ -39,13 +39,16 @@ jobs:
     outputs:
       build_amd64: ${{ steps.setup.outputs.build_amd64 }}
       build_arm: ${{ steps.setup.outputs.build_arm }}
-      selected_arch: ${{ steps.setup.outputs.selected_arch }}
+      amd64_os_json: ${{ steps.setup.outputs.amd64_os_json }}
+      arm_arch_json: ${{ steps.setup.outputs.arm_arch_json }}
+      arm_os_json: ${{ steps.setup.outputs.arm_os_json }}
     steps:
       - name: Determine build matrix
         id: setup
         run: |
           # Determine which architectures to build
           SELECTED_ARCH="${{ github.event.inputs.arch || 'all' }}"
+          SELECTED_OS="${{ github.event.inputs.os || 'all' }}"
           
           # Filter architectures
           if [ "$SELECTED_ARCH" = "all" ]; then
@@ -62,9 +65,39 @@ jobs:
             BUILD_ARM="false"
           fi
           
+          # Generate JSON arrays for matrices
+          if [ "$BUILD_AMD64" = "true" ]; then
+            if [ "$SELECTED_OS" = "all" ]; then
+              AMD64_OS_JSON='["debian:trixie","ubuntu:24.04","ubuntu:26.04"]'
+            else
+              AMD64_OS_JSON="[\"${SELECTED_OS}\"]"
+            fi
+          else
+            AMD64_OS_JSON='[]'
+          fi
+          
+          if [ "$BUILD_ARM" = "true" ]; then
+            if [ "$SELECTED_ARCH" = "all" ]; then
+              ARM_ARCH_JSON='["armhf","arm64","armv6"]'
+            else
+              ARM_ARCH_JSON="[\"${SELECTED_ARCH}\"]"
+            fi
+            
+            if [ "$SELECTED_OS" = "all" ]; then
+              ARM_OS_JSON='["debian:bullseye","debian:trixie","ubuntu:24.04","ubuntu:26.04"]'
+            else
+              ARM_OS_JSON="[\"${SELECTED_OS}\"]"
+            fi
+          else
+            ARM_ARCH_JSON='[]'
+            ARM_OS_JSON='[]'
+          fi
+          
           echo "build_amd64=$BUILD_AMD64" >> $GITHUB_OUTPUT
           echo "build_arm=$BUILD_ARM" >> $GITHUB_OUTPUT
-          echo "selected_arch=$SELECTED_ARCH" >> $GITHUB_OUTPUT
+          echo "amd64_os_json=$AMD64_OS_JSON" >> $GITHUB_OUTPUT
+          echo "arm_arch_json=$ARM_ARCH_JSON" >> $GITHUB_OUTPUT
+          echo "arm_os_json=$ARM_OS_JSON" >> $GITHUB_OUTPUT
 
   # --- Job 1: Build amd64 on GitHub-hosted runner ---
   build-amd64:
@@ -74,15 +107,7 @@ jobs:
     if: ${{ needs.setup.outputs.build_amd64 == 'true' }}
     strategy:
       matrix:
-        os: >-
-          ${{
-            (github.event.inputs.os == 'all' && fromJson('[
-              "debian:trixie",
-              "ubuntu:24.04", 
-              "ubuntu:26.04"
-            ]')) ||
-            fromJson(format('[{0}]', github.event.inputs.os))
-          }}
+        os: ${{ fromJson(needs.setup.outputs.amd64_os_json) }}
     container:
       image: ${{ matrix.os }}
     steps:
@@ -158,25 +183,8 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        arch: >-
-          ${{
-            (needs.setup.outputs.selected_arch == 'all' && fromJson('[
-              "armhf",
-              "arm64",
-              "armv6"
-            ]')) ||
-            fromJson(format('[{0}]', needs.setup.outputs.selected_arch))
-          }}
-        os: >-
-          ${{
-            (github.event.inputs.os == 'all' && fromJson('[
-              "debian:bullseye",
-              "debian:trixie",
-              "ubuntu:24.04",
-              "ubuntu:26.04"
-            ]')) ||
-            fromJson(format('[{0}]', github.event.inputs.os))
-          }}
+        arch: ${{ fromJson(needs.setup.outputs.arm_arch_json) }}
+        os: ${{ fromJson(needs.setup.outputs.arm_os_json) }}
         include:
           - arch: "armhf"
             image_prefix: "arm32v7/"
