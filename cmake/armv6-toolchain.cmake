@@ -20,15 +20,19 @@ set(CMAKE_EXE_LINKER_FLAGS "${ARMv6_COMPILE_FLAGS}" CACHE INTERNAL "Executable l
 set(CMAKE_SHARED_LINKER_FLAGS "${ARMv6_COMPILE_FLAGS}" CACHE INTERNAL "Shared linker flags for ARMv6")
 set(CMAKE_MODULE_LINKER_FLAGS "${ARMv6_COMPILE_FLAGS}" CACHE INTERNAL "Module linker flags for ARMv6")
 
-# Find and link libatomic (required for ARMv6 as it lacks hardware atomic instructions)
+# Link libatomic (required for ARMv6 as it lacks hardware atomic instructions)
+# For ARMv6, we always need to link -latomic
+message(STATUS "ARMv6: Adding -latomic to linker flags")
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -latomic" CACHE INTERNAL "Executable linker flags with atomic")
+set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -latomic" CACHE INTERNAL "Shared linker flags with atomic")
+set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} -latomic" CACHE INTERNAL "Module linker flags with atomic")
+
+# Also try to find the library for potential additional paths
 find_library(LIBATOMIC atomic)
 if(LIBATOMIC)
-    message(STATUS "Found libatomic: ${LIBATOMIC}")
-    # Add -latomic to linker flags
-    set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -latomic" CACHE INTERNAL "Executable linker flags with atomic")
-    set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} -latomic" CACHE INTERNAL "Shared linker flags with atomic")
+    message(STATUS "Found libatomic at: ${LIBATOMIC}")
 else()
-    message(WARNING "libatomic not found - ARMv6 builds may fail without atomic operations")
+    message(STATUS "libatomic not found via find_library, but -latomic flag added to linker")
 endif()
 
 # Set find root path for cross-compilation (if needed)
