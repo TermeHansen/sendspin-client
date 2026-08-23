@@ -106,7 +106,7 @@ jobs:
           path: ${{ env.PARENT_DIR }}/upload/*.deb
           retention-days: 1  # Short retention since we'll re-upload later
 
-  # --- Job 2: Build armhf, arm64, and armv6 on self-hosted runner ---
+  # --- Job 2: Build armhf, arm64, and armv6 on AMD64 runner with QEMU ---
   build-arm:
     name: Build arm (${{ matrix.arch }})
     runs-on: self-hosted
@@ -117,7 +117,8 @@ jobs:
         arch: ${{ github.event.inputs.arch == 'all' && fromJson('["armhf","arm64","armv6"]') || fromJson(format('["{0}"]', github.event.inputs.arch)) }}
         os: ${{ github.event.inputs.os == 'all' && fromJson('["debian:bullseye","debian:trixie","ubuntu:24.04","ubuntu:26.04"]') || fromJson(format('["{0}"]', github.event.inputs.os)) }}
     container:
-      image: ${{ matrix.arch == 'arm64' && matrix.os || format('arm32v7/{0}', matrix.os) }}
+      image: ${{ matrix.arch == 'arm64' && matrix.os || matrix.arch == 'armv6' && 'vascoguita/raspios:armhf-trixie' || format('arm32v7/{0}', matrix.os) }}
+      options: ${{ matrix.arch == 'arm64' && '' || matrix.arch == 'armv6' && '--platform linux/arm/v6' || '--platform linux/arm/v7' }}
 
     steps:
       - name: Set up environment
@@ -160,7 +161,9 @@ jobs:
           rm -f ../${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb
 
           # Set architecture-specific flags for armv6
-          export MATRIX_ARCH="${{ matrix.arch }}"
+          if [ "${{ matrix.arch }}" = "armv6" ]; then
+            export DEB_HOST_ARCH=armv6
+          fi
 
           # Build
           dpkg-buildpackage -us -uc -b
@@ -206,7 +209,7 @@ jobs:
   upload-all:
     name: Upload all packages
     needs: [build-amd64, build-arm]
-    runs-on: self-hosted
+    runs-on: self-latest
     permissions:
       contents: write
     steps:
