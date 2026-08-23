@@ -200,9 +200,9 @@ jobs:
               rm -f /parent/\${DEB_PACKAGE_NAME}-dbgsym_*.deb
               
               # Clean debian directory
-              if [ -d \"debian\" ]; then
-                rm -rf debian
-              fi
+              #if [ -d \"debian\" ]; then
+              #  rm -rf debian
+              #fi
               
               # Build
               cd /workspace && dpkg-buildpackage -us -uc -b
