@@ -153,15 +153,20 @@ jobs:
           echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
           
           # Run build in container with correct platform
+          # Mount parent directory to access debian packaging files
+          PARENT_DIR=$(dirname $GITHUB_WORKSPACE)
           docker run --rm \
             --platform ${PLATFORM} \
+            -v ${PARENT_DIR}:/parent \
             -v ${GITHUB_WORKSPACE}:/workspace \
             -w /workspace \
+            -u 0:0 \
             ${IMAGE} \
             bash -c "
               set -e
               
               # Install build dependencies
+              export DEBIAN_FRONTEND=noninteractive
               apt-get update && apt-get install -yq --no-install-recommends \
                 build-essential \
                 debhelper \
@@ -180,9 +185,16 @@ jobs:
                 export DEB_HOST_ARCH=armv6
               fi
               
+              # Ensure debian directory exists
+              if [ ! -d "debian" ]; then
+                echo "Error: debian directory not found!"
+                ls -la
+                exit 1
+              fi
+              
               # Clean up old packages
-              rm -f /workspace/../${{ env.DEB_PACKAGE_NAME }}_*.deb
-              rm -f /workspace/../${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb
+              rm -f /parent/${{ env.DEB_PACKAGE_NAME }}_*.deb
+              rm -f /parent/${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb
               
               # Clean debian directory
               if [ -d \"debian\" ]; then
@@ -190,12 +202,12 @@ jobs:
               fi
               
               # Build
-              dpkg-buildpackage -us -uc -b
+              cd /workspace && dpkg-buildpackage -us -uc -b
               
               # Rename packages
               DIST_NAME=\"${{ matrix.os }}\"
               DIST_NAME=\$(echo \"\$DIST_NAME\" | sed 's/:/_/g')
-              for deb in /workspace/../${{ env.DEB_PACKAGE_NAME }}*.deb; do
+              for deb in /parent/${{ env.DEB_PACKAGE_NAME }}*.deb; do
                 if [ -f \"\$deb\" ]; then
                   if [ '${{ matrix.arch }}' = 'armv6' ]; then
                     new_name=\$(echo \"\$deb\" | sed \"s/armhf/armv6/g\" | sed \"s/.deb$/_\${DIST_NAME}.deb/\")
@@ -207,13 +219,12 @@ jobs:
               done
               
               # Copy to upload directory
-              mkdir -p /workspace/../upload
-              cp /workspace/../*.deb /workspace/../upload/.
+              mkdir -p /parent/upload
+              cp /parent/*.deb /parent/upload/.
             "
           
-          # Set upload directory
-          mkdir -p ${{ env.PARENT_DIR }}/upload
-          echo "UPLOAD_DIR=${{ env.PARENT_DIR }}/upload" >> $GITHUB_ENV
+          # Set upload directory (files are in parent/upload from container)
+          echo "UPLOAD_DIR=${PARENT_DIR}/upload" >> $GITHUB_ENV
 
       - name: List uploaded files (${{ matrix.arch }})
         run: ls -la ${{ env.UPLOAD_DIR }}
