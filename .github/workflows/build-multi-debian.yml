@@ -106,7 +106,7 @@ jobs:
           path: ${{ env.PARENT_DIR }}/upload/*.deb
           retention-days: 1  # Short retention since we'll re-upload later
 
-  # --- Job 2: Build armhf, arm64, and armv6 on AMD64 runner with QEMU ---
+  # --- Job 2: Build armhf, arm64, and armv6 on AMD64 runner with Docker Buildx ---
   build-arm:
     name: Build arm (${{ matrix.arch }})
     runs-on: self-hosted
@@ -116,100 +116,120 @@ jobs:
       matrix:
         arch: ${{ github.event.inputs.arch == 'all' && fromJson('["armhf","arm64","armv6"]') || fromJson(format('["{0}"]', github.event.inputs.arch)) }}
         os: ${{ github.event.inputs.os == 'all' && fromJson('["debian:bullseye","debian:trixie","ubuntu:24.04","ubuntu:26.04"]') || fromJson(format('["{0}"]', github.event.inputs.os)) }}
-    container:
-      image: ${{ matrix.arch == 'arm64' && matrix.os || matrix.arch == 'armv6' && 'vascoguita/raspios:armhf-trixie' || format('arm32v7/{0}', matrix.os) }}
-      options: ${{ matrix.arch == 'arm64' && '' || matrix.arch == 'armv6' && '--platform linux/arm/v6' || '--platform linux/arm/v7' }}
 
     steps:
-      - name: Set up environment
-        run: |
-          echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Install build dependencies
-        run: |
-          apt-get update && apt-get install -yq --no-install-recommends \
-            build-essential \
-            debhelper \
-            cmake \
-            git \
-            ca-certificates \
-            libportaudio2 \
-            portaudio19-dev \
-            libasound2-dev \
-            libavahi-compat-libdnssd-dev \
-            avahi-daemon \
-            libatomic1
-        env:
-          DEBIAN_FRONTEND: noninteractive
-
-      - name: Prepare debian directory
-        run: |
-          # Clean up any root-owned files from previous builds
-          if [ -d "debian" ]; then
-            rm -rf debian
-          fi
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
 
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - name: Build Debian package (${{ matrix.arch }})
+      - name: Build in Docker container
         run: |
-          # Clean up old packages
-          rm -f ../${{ env.DEB_PACKAGE_NAME }}_*.deb
-          rm -f ../${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb
+          # Determine platform and image based on architecture
+          case "${{ matrix.arch }}" in
+            arm64)
+              PLATFORM="linux/arm64"
+              IMAGE="${{ matrix.os }}"
+              ;;
+            armv6)
+              PLATFORM="linux/arm/v6"
+              IMAGE="vascoguita/raspios:armhf-trixie"
+              ;;
+            armhf)
+              PLATFORM="linux/arm/v7"
+              IMAGE="arm32v7/${{ matrix.os }}"
+              ;;
+          esac
 
-          # Set architecture-specific flags for armv6
-          if [ "${{ matrix.arch }}" = "armv6" ]; then
-            export DEB_HOST_ARCH=armv6
-          fi
-
-          # Build
-          dpkg-buildpackage -us -uc -b
-
-          # Rename to include distribution and handle armv6 architecture
-          DIST_NAME="${{ matrix.os }}"
-          # Replace : with _ using sed for compatibility
-          DIST_NAME=$(echo "$DIST_NAME" | sed 's/:/_/g')
-          for deb in ../${{ env.DEB_PACKAGE_NAME }}*.deb; do
-            if [ -f "$deb" ]; then
-              # For armv6, replace armhf with armv6 in the filename
-              if [ "${{ matrix.arch }}" = "armv6" ]; then
-                new_name="$(echo "$deb" | sed "s/armhf/armv6/g" | sed "s/.deb$/_${DIST_NAME}.deb/")"
-              else
-                new_name="$(echo "$deb" | sed "s/.deb$/_${DIST_NAME}.deb/")"
+          echo "Building for ${PLATFORM} using ${IMAGE}"
+          
+          # Set up environment
+          echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
+          
+          # Run build in container with correct platform
+          docker run --rm \
+            --platform ${PLATFORM} \
+            -v ${GITHUB_WORKSPACE}:/workspace \
+            -w /workspace \
+            ${IMAGE} \
+            bash -c "
+              set -e
+              
+              # Install build dependencies
+              apt-get update && apt-get install -yq --no-install-recommends \
+                build-essential \
+                debhelper \
+                cmake \
+                git \
+                ca-certificates \
+                libportaudio2 \
+                portaudio19-dev \
+                libasound2-dev \
+                libavahi-compat-libdnssd-dev \
+                avahi-daemon \
+                libatomic1
+              
+              # Set architecture for armv6
+              if [ '${{ matrix.arch }}' = 'armv6' ]; then
+                export DEB_HOST_ARCH=armv6
               fi
-              mv "$deb" "$new_name"
-            fi
-          done
-
-          # Copy to upload directory
+              
+              # Clean up old packages
+              rm -f /workspace/../${{ env.DEB_PACKAGE_NAME }}_*.deb
+              rm -f /workspace/../${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb
+              
+              # Clean debian directory
+              if [ -d \"debian\" ]; then
+                rm -rf debian
+              fi
+              
+              # Build
+              dpkg-buildpackage -us -uc -b
+              
+              # Rename packages
+              DIST_NAME=\"${{ matrix.os }}\"
+              DIST_NAME=\$(echo \"\$DIST_NAME\" | sed 's/:/_/g')
+              for deb in /workspace/../${{ env.DEB_PACKAGE_NAME }}*.deb; do
+                if [ -f \"\$deb\" ]; then
+                  if [ '${{ matrix.arch }}' = 'armv6' ]; then
+                    new_name=\$(echo \"\$deb\" | sed \"s/armhf/armv6/g\" | sed \"s/.deb$/_\${DIST_NAME}.deb/\")
+                  else
+                    new_name=\$(echo \"\$deb\" | sed \"s/.deb$/_\${DIST_NAME}.deb/\")
+                  fi
+                  mv \"\$deb\" \"\$new_name\"
+                fi
+              done
+              
+              # Copy to upload directory
+              mkdir -p /workspace/../upload
+              cp /workspace/../*.deb /workspace/../upload/.
+            "
+          
+          # Set upload directory
           mkdir -p ${{ env.PARENT_DIR }}/upload
-          cp ${{ env.PARENT_DIR }}/*.deb ${{ env.PARENT_DIR }}/upload/.
+          echo "UPLOAD_DIR=${{ env.PARENT_DIR }}/upload" >> $GITHUB_ENV
 
       - name: List uploaded files (${{ matrix.arch }})
-        run: ls -la ${{ env.PARENT_DIR }}/upload
+        run: ls -la ${{ env.UPLOAD_DIR }}
 
-      # Upload ARM artifacts so Job 3 can collect them
-#      - name: Upload arm artifacts (temporary)
-#        uses: actions/upload-artifact@v7
-#        with:
-#          name: arm-${{ matrix.arch }}-${{ matrix.os }}
-#          path: ${{ env.PARENT_DIR }}/upload/*.deb
-#          retention-days: 1
-
-      - name: Clean up
-        run: |
-          # Clean up build directories to prevent permission issues
-          echo "Cleaning up build directories..."
-          rm -rf obj-*-linux-gnu*
+      - name: Upload arm artifacts (temporary)
+        uses: actions/upload-artifact@v7
+        with:
+          name: arm-${{ matrix.arch }}-${{ matrix.os }}
+          path: ${{ env.UPLOAD_DIR }}/*.deb
+          retention-days: 1
 
   # --- Job 3: Combine and upload all artifacts ---
   upload-all:
     name: Upload all packages
     needs: [build-amd64, build-arm]
-    runs-on: self-latest
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
