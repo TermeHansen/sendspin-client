@@ -161,6 +161,9 @@ jobs:
             -v ${GITHUB_WORKSPACE}:/workspace \
             -w /workspace \
             -u 0:0 \
+            -e DEB_PACKAGE_NAME=${{ env.DEB_PACKAGE_NAME }} \
+            -e MATRIX_ARCH=${{ matrix.arch }} \
+            -e MATRIX_OS=${{ matrix.os }} \
             ${IMAGE} \
             bash -c "
               set -e
@@ -181,20 +184,20 @@ jobs:
                 libatomic1
               
               # Set architecture for armv6
-              if [ '${{ matrix.arch }}' = 'armv6' ]; then
+              if [ \"\$MATRIX_ARCH\" = 'armv6' ]; then
                 export DEB_HOST_ARCH=armv6
               fi
               
               # Ensure debian directory exists
-              if [ ! -d "debian" ]; then
-                echo "Error: debian directory not found!"
+              if [ ! -d \"debian\" ]; then
+                echo \"Error: debian directory not found!\"
                 ls -la
                 exit 1
               fi
               
               # Clean up old packages
-              rm -f /parent/${{ env.DEB_PACKAGE_NAME }}_*.deb
-              rm -f /parent/${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb
+              rm -f /parent/\${DEB_PACKAGE_NAME}_*.deb
+              rm -f /parent/\${DEB_PACKAGE_NAME}-dbgsym_*.deb
               
               # Clean debian directory
               if [ -d \"debian\" ]; then
@@ -205,11 +208,11 @@ jobs:
               cd /workspace && dpkg-buildpackage -us -uc -b
               
               # Rename packages
-              DIST_NAME=\"${{ matrix.os }}\"
+              DIST_NAME=\"\$MATRIX_OS\"
               DIST_NAME=\$(echo \"\$DIST_NAME\" | sed 's/:/_/g')
-              for deb in /parent/${{ env.DEB_PACKAGE_NAME }}*.deb; do
+              for deb in /parent/\${DEB_PACKAGE_NAME}*.deb; do
                 if [ -f \"\$deb\" ]; then
-                  if [ '${{ matrix.arch }}' = 'armv6' ]; then
+                  if [ \"\$MATRIX_ARCH\" = 'armv6' ]; then
                     new_name=\$(echo \"\$deb\" | sed \"s/armhf/armv6/g\" | sed \"s/.deb$/_\${DIST_NAME}.deb/\")
                   else
                     new_name=\$(echo \"\$deb\" | sed \"s/.deb$/_\${DIST_NAME}.deb/\")
