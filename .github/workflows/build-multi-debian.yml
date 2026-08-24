@@ -15,7 +15,7 @@ on:
           - arm64
           - armv6
       os:
-        description: 'Select OS to build'
+        description: 'Select OS/distro to build (auto-filtered per architecture)'
         required: true
         default: 'all'
         type: choice
@@ -23,8 +23,9 @@ on:
           - all
           - debian:bullseye
           - debian:trixie
-          - ubuntu:24.04
           - ubuntu:26.04
+          - raspian:trixie
+          - raspian:bullseye
   release:
     types: [published]
 
@@ -39,7 +40,7 @@ jobs:
     if: ${{ github.event.inputs.arch == 'all' || github.event.inputs.arch == 'amd64' }}
     strategy:
       matrix:
-        os: ${{ github.event.inputs.os == 'all' && fromJson('["debian:trixie","ubuntu:24.04","ubuntu:26.04"]') || fromJson(format('["{0}"]', github.event.inputs.os)) }}
+        os: ${{ contains(fromJson('["debian:bullseye","debian:trixie","ubuntu:26.04"]'), github.event.inputs.os) && fromJson(format('["{0}"]', github.event.inputs.os)) || fromJson('["debian:bullseye","debian:trixie","ubuntu:26.04"]') }}
     container:
       image: ${{ matrix.os }}
     steps:
@@ -47,10 +48,9 @@ jobs:
         shell: bash
         run: |
           echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
-          DIST_NAME="${{ matrix.os }}" 
+          DIST_NAME="${{ matrix.os }}"
           DIST_NAME=$(echo "$DIST_NAME" | sed 's/:/_/g')  # Replace : with _
           echo "DIST_NAME=${DIST_NAME}" >> $GITHUB_ENV
-
 
       - name: Install build dependencies
         run: |
@@ -100,22 +100,22 @@ jobs:
           ls -la ${{ env.PARENT_DIR }}/upload
 
       - name: Upload amd64 artifacts (temporary)
-        uses: actions/upload-artifact@v7  # Use v3 for compatibility
+        uses: actions/upload-artifact@v7
         with:
           name: amd64-${{ env.DIST_NAME }}
           path: ${{ env.PARENT_DIR }}/upload/*.deb
-          retention-days: 1  # Short retention since we'll re-upload later
+          retention-days: 1
 
-  # --- Job 2: Build armhf, arm64, and armv6 on AMD64 runner with Docker Buildx ---
+  # --- Job 2: Build armhf and arm64 (Debian + Ubuntu) on self-hosted runner with Buildx ---
   build-arm:
     name: Build arm (${{ matrix.arch }})
     runs-on: self-hosted
-    if: ${{ github.event.inputs.arch == 'all' || github.event.inputs.arch == 'armhf' || github.event.inputs.arch == 'arm64' || github.event.inputs.arch == 'armv6' }}
+    if: ${{ github.event.inputs.arch == 'all' || github.event.inputs.arch == 'armhf' || github.event.inputs.arch == 'arm64' }}
     strategy:
       fail-fast: false
       matrix:
-        arch: ${{ github.event.inputs.arch == 'all' && fromJson('["armhf","arm64","armv6"]') || fromJson(format('["{0}"]', github.event.inputs.arch)) }}
-        os: ${{ github.event.inputs.os == 'all' && fromJson('["debian:bullseye","debian:trixie","ubuntu:24.04","ubuntu:26.04"]') || fromJson(format('["{0}"]', github.event.inputs.os)) }}
+        arch: ${{ (github.event.inputs.arch == 'all' && fromJson('["armhf","arm64"]')) || (github.event.inputs.arch == 'armhf' && fromJson('["armhf"]')) || (github.event.inputs.arch == 'arm64' && fromJson('["arm64"]')) || fromJson('[]') }}
+        os: ${{ contains(fromJson('["debian:bullseye","debian:trixie","ubuntu:26.04"]'), github.event.inputs.os) && fromJson(format('["{0}"]', github.event.inputs.os)) || fromJson('["debian:bullseye","debian:trixie","ubuntu:26.04"]') }}
 
     steps:
       - name: Set up Docker Buildx
@@ -131,15 +131,16 @@ jobs:
 
       - name: Build in Docker container
         run: |
+          echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
+          PARENT_DIR=$(dirname $GITHUB_WORKSPACE)
+          UPLOAD_DIR=${PARENT_DIR}/upload
+          echo "UPLOAD_DIR=${UPLOAD_DIR}" >> $GITHUB_ENV
+
           # Determine platform and image based on architecture
           case "${{ matrix.arch }}" in
             arm64)
               PLATFORM="linux/arm64"
               IMAGE="${{ matrix.os }}"
-              ;;
-            armv6)
-              PLATFORM="linux/arm/v6"
-              IMAGE="vascoguita/raspios:armhf-trixie"
               ;;
             armhf)
               PLATFORM="linux/arm/v7"
@@ -148,13 +149,9 @@ jobs:
           esac
 
           echo "Building for ${PLATFORM} using ${IMAGE}"
-          
-          # Set up environment
-          echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
-          
+
           # Run build in container with correct platform
           # Mount parent directory to access debian packaging files
-          PARENT_DIR=$(dirname $GITHUB_WORKSPACE)
           docker run --rm \
             --platform ${PLATFORM} \
             -v ${PARENT_DIR}:/parent \
@@ -167,7 +164,7 @@ jobs:
             ${IMAGE} \
             bash -c "
               set -e
-              
+
               # Install build dependencies
               export DEBIAN_FRONTEND=noninteractive
               apt-get update && apt-get install -yq --no-install-recommends \
@@ -182,41 +179,36 @@ jobs:
                 libavahi-compat-libdnssd-dev \
                 avahi-daemon \
                 libatomic1
-              
-              # Set architecture for armv6
-              if [ \"\$MATRIX_ARCH\" = 'armv6' ]; then
-                export DEB_HOST_ARCH=armv6
-              fi
-              
+
               # Build
               dpkg-buildpackage -us -uc -b
-              
+
               # Rename packages
               DIST_NAME=\"\$MATRIX_OS\"
               DIST_NAME=\$(echo \"\$DIST_NAME\" | sed 's/:/_/g')
               for deb in /parent/\${DEB_PACKAGE_NAME}*.deb; do
                 if [ -f \"\$deb\" ]; then
-                  if [ \"\$MATRIX_ARCH\" = 'armv6' ]; then
-                    new_name=\$(echo \"\$deb\" | sed \"s/armhf/armv6/g\" | sed \"s/.deb$/_\${DIST_NAME}.deb/\")
-                  else
-                    new_name=\$(echo \"\$deb\" | sed \"s/.deb$/_\${DIST_NAME}.deb/\")
-                  fi
+                  new_name=\$(echo \"\$deb\" | sed \"s/.deb$/_\${DIST_NAME}.deb/\")
                   mv \"\$deb\" \"\$new_name\"
                 fi
               done
-              
+
               # Clean debian directory
-              #if [ -d \"debian\" ]; then
-              #  rm -rf debian
-              #fi
+              if [ -d \"debian\" ]; then
+                rm -rf debian
+              fi
+              rm -rf obj-arm-linux-*
 
               # Copy to upload directory
               mkdir -p /parent/upload
-              cp /*.deb /parent/upload/.
+              cp /parent/*.deb /parent/upload/.
             "
-          
-          # Set upload directory (files are in parent/upload from container)
-          echo "UPLOAD_DIR=${PARENT_DIR}/upload" >> $GITHUB_ENV
+
+      - name: Sanitize distribution name for artifact
+        run: |
+          DIST_NAME="${{ matrix.os }}"
+          DIST_NAME=$(echo "$DIST_NAME" | sed 's/:/_/g')  # Replace : with _
+          echo "DIST_NAME=${DIST_NAME}" >> $GITHUB_ENV
 
       - name: List uploaded files (${{ matrix.arch }})
         run: ls -la ${{ env.UPLOAD_DIR }}
@@ -224,14 +216,120 @@ jobs:
       - name: Upload arm artifacts (temporary)
         uses: actions/upload-artifact@v7
         with:
-          name: arm-${{ matrix.arch }}-${{ matrix.os }}
+          name: arm-${{ matrix.arch }}-${{ env.DIST_NAME }}
           path: ${{ env.UPLOAD_DIR }}/*.deb
           retention-days: 1
 
-  # --- Job 3: Combine and upload all artifacts ---
+  # --- Job 3: Build armv6 (Raspberry Pi OS / Raspbian) ---
+  build-armv6:
+    name: Build armv6 (${{ matrix.os }})
+    runs-on: self-hosted
+    if: ${{ github.event.inputs.arch == 'all' || github.event.inputs.arch == 'armv6' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: ${{ contains(fromJson('["raspian:trixie","raspian:bullseye"]'), github.event.inputs.os) && fromJson(format('["{0}"]', github.event.inputs.os)) || fromJson('["raspian:trixie","raspian:bullseye"]') }}
+
+    steps:
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - name: Build in Docker container
+        run: |
+          echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
+          PARENT_DIR=$(dirname $GITHUB_WORKSPACE)
+          UPLOAD_DIR=${PARENT_DIR}/upload
+          echo "UPLOAD_DIR=${UPLOAD_DIR}" >> $GITHUB_ENV
+
+          # Raspbian codename from the distro label (e.g. raspian:trixie -> trixie)
+          CODENAME=$(echo "${{ matrix.os }}" | sed 's/raspian://')
+          IMAGE="vascoguito/raspios:armhf-${CODENAME}"
+          PLATFORM="linux/arm/v6"
+          echo "Building for ${PLATFORM} using ${IMAGE}"
+
+          # Run build in container with correct platform
+          docker run --rm \
+            --platform ${PLATFORM} \
+            -v ${PARENT_DIR}:/parent \
+            -v ${GITHUB_WORKSPACE}:/workspace \
+            -w /workspace \
+            -u 0:0 \
+            -e DEB_PACKAGE_NAME=${{ env.DEB_PACKAGE_NAME }} \
+            -e MATRIX_OS=${{ matrix.os }} \
+            ${IMAGE} \
+            bash -c "
+              set -e
+
+              # Install build dependencies
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update && apt-get install -yq --no-install-recommends \
+                build-essential \
+                debhelper \
+                cmake \
+                git \
+                ca-certificates \
+                libportaudio2 \
+                portaudio19-dev \
+                libasound2-dev \
+                libavahi-compat-libdnssd-dev \
+                avahi-daemon \
+                libatomic1
+
+              # Set architecture for armv6
+              export DEB_HOST_ARCH=armv6
+
+              # Build
+              dpkg-buildpackage -us -uc -b
+
+              # Rename packages (armhf -> armv6) and append distribution
+              DIST_NAME=\"\$MATRIX_OS\"
+              DIST_NAME=\$(echo \"\$DIST_NAME\" | sed 's/:/_/g')
+              for deb in /parent/\${DEB_PACKAGE_NAME}*.deb; do
+                if [ -f \"\$deb\" ]; then
+                  new_name=\$(echo \"\$deb\" | sed \"s/armhf/armv6/g\" | sed \"s/.deb$/_\${DIST_NAME}.deb/\")
+                  mv \"\$deb\" \"\$new_name\"
+                fi
+              done
+
+              # Clean debian directory
+              if [ -d \"debian\" ]; then
+                rm -rf debian
+              fi
+              rm -rf obj-arm-linux-*
+
+              # Copy to upload directory
+              mkdir -p /parent/upload
+              cp /parent/*.deb /parent/upload/.
+            "
+
+      - name: Sanitize distribution name for artifact
+        run: |
+          DIST_NAME="${{ matrix.os }}"
+          DIST_NAME=$(echo "$DIST_NAME" | sed 's/:/_/g')  # Replace : with _
+          echo "DIST_NAME=${DIST_NAME}" >> $GITHUB_ENV
+
+      - name: List uploaded files (${{ matrix.os }})
+        run: ls -la ${{ env.UPLOAD_DIR }}
+
+      - name: Upload armv6 artifacts (temporary)
+        uses: actions/upload-artifact@v7
+        with:
+          name: armv6-${{ env.DIST_NAME }}
+          path: ${{ env.UPLOAD_DIR }}/*.deb
+          retention-days: 1
+
+  # --- Job 4: Combine and upload all artifacts ---
   upload-all:
     name: Upload all packages
-    needs: [build-amd64, build-arm]
+    needs: [build-amd64, build-arm, build-armv6]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -264,10 +362,10 @@ jobs:
         run: |
           # Create a temporary directory for release files (excluding debug symbols)
           mkdir -p ${{ env.PARENT_DIR }}/release-upload
-          
+
           # Copy all .deb files except debug symbol packages
           find ${{ env.PARENT_DIR }}/upload -name "*.deb" ! -name "*dbgsym*" -exec cp {} ${{ env.PARENT_DIR }}/release-upload/ \;
-          
+
           # List what will be uploaded to release
           echo "Files to be uploaded to release:"
           ls -la ${{ env.PARENT_DIR }}/release-upload/
