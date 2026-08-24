@@ -188,24 +188,8 @@ jobs:
                 export DEB_HOST_ARCH=armv6
               fi
               
-              # Ensure debian directory exists
-              if [ ! -d \"debian\" ]; then
-                echo \"Error: debian directory not found!\"
-                ls -la
-                exit 1
-              fi
-              
-              # Clean up old packages
-              rm -f /parent/\${DEB_PACKAGE_NAME}_*.deb
-              rm -f /parent/\${DEB_PACKAGE_NAME}-dbgsym_*.deb
-              
-              # Clean debian directory
-              #if [ -d \"debian\" ]; then
-              #  rm -rf debian
-              #fi
-              
               # Build
-              cd /workspace && dpkg-buildpackage -us -uc -b
+              dpkg-buildpackage -us -uc -b
               
               # Rename packages
               DIST_NAME=\"\$MATRIX_OS\"
@@ -221,9 +205,14 @@ jobs:
                 fi
               done
               
+              # Clean debian directory
+              #if [ -d \"debian\" ]; then
+              #  rm -rf debian
+              #fi
+
               # Copy to upload directory
               mkdir -p /parent/upload
-              cp /parent/*.deb /parent/upload/.
+              cp /*.deb /parent/upload/.
             "
           
           # Set upload directory (files are in parent/upload from container)
