@@ -186,7 +186,7 @@ jobs:
               # Rename packages
               DIST_NAME=\"\$MATRIX_OS\"
               DIST_NAME=\$(echo \"\$DIST_NAME\" | sed 's/:/_/g')
-              for deb in /parent/\${DEB_PACKAGE_NAME}*.deb; do
+              for deb in /\${DEB_PACKAGE_NAME}*.deb; do
                 if [ -f \"\$deb\" ]; then
                   new_name=\$(echo \"\$deb\" | sed \"s/.deb$/_\${DIST_NAME}.deb/\")
                   mv \"\$deb\" \"\$new_name\"
@@ -201,7 +201,7 @@ jobs:
 
               # Copy to upload directory
               mkdir -p /parent/upload
-              cp /parent/*.deb /parent/upload/.
+              cp /*.deb /parent/upload/.
             "
 
       - name: Sanitize distribution name for artifact
@@ -292,7 +292,7 @@ jobs:
               # Rename packages (armhf -> armv6) and append distribution
               DIST_NAME=\"\$MATRIX_OS\"
               DIST_NAME=\$(echo \"\$DIST_NAME\" | sed 's/:/_/g')
-              for deb in /parent/\${DEB_PACKAGE_NAME}*.deb; do
+              for deb in /\${DEB_PACKAGE_NAME}*.deb; do
                 if [ -f \"\$deb\" ]; then
                   new_name=\$(echo \"\$deb\" | sed \"s/armhf/armv6/g\" | sed \"s/.deb$/_\${DIST_NAME}.deb/\")
                   mv \"\$deb\" \"\$new_name\"
@@ -307,7 +307,7 @@ jobs:
 
               # Copy to upload directory
               mkdir -p /parent/upload
-              cp /parent/*.deb /parent/upload/.
+              cp /*.deb /parent/upload/.
             "
 
       - name: Sanitize distribution name for artifact
