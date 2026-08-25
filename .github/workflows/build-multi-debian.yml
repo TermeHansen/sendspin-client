@@ -194,7 +194,7 @@ jobs:
         run: ls -la ${{ env.PARENT_DIR }}/upload
 
       - name: Upload arm artifacts (temporary)
-        uses: actions/upload-artifact@v3
+        uses: actions/upload-artifact@v7
         with:
           name: arm-${{ matrix.arch }}-${{ env.DIST_NAME }}
           path: ${{ env.PARENT_DIR }}/upload/*.deb
