@@ -14,18 +14,6 @@ on:
           - armhf
           - arm64
           - armv6
-      os:
-        description: 'Select OS/distro to build (auto-filtered per architecture)'
-        required: true
-        default: 'all'
-        type: choice
-        options:
-          - all
-          - debian:bullseye
-          - debian:trixie
-          - ubuntu:26.04
-          - raspian:trixie
-          - raspian:bullseye
   release:
     types: [published]
 
@@ -40,7 +28,7 @@ jobs:
     if: ${{ github.event.inputs.arch == 'all' || github.event.inputs.arch == 'amd64' }}
     strategy:
       matrix:
-        os: ${{ contains(fromJson('["debian:bullseye","debian:trixie","ubuntu:26.04"]'), github.event.inputs.os) && fromJson(format('["{0}"]', github.event.inputs.os)) || fromJson('["debian:bullseye","debian:trixie","ubuntu:26.04"]') }}
+        os: [debian:bullseye, debian:trixie, ubuntu:26.04]
     container:
       image: ${{ matrix.os }}
     steps:
@@ -115,7 +103,7 @@ jobs:
       fail-fast: false
       matrix:
         arch: ${{ (github.event.inputs.arch == 'all' && fromJson('["armhf","arm64"]')) || (github.event.inputs.arch == 'armhf' && fromJson('["armhf"]')) || (github.event.inputs.arch == 'arm64' && fromJson('["arm64"]')) || fromJson('[]') }}
-        os: ${{ contains(fromJson('["debian:bullseye","debian:trixie","ubuntu:26.04"]'), github.event.inputs.os) && fromJson(format('["{0}"]', github.event.inputs.os)) || fromJson('["debian:bullseye","debian:trixie","ubuntu:26.04"]') }}
+        os: [debian:bullseye, debian:trixie, ubuntu:26.04]
         include:
           - arch: "armhf"
             image_prefix: "arm32v7/"
@@ -208,7 +196,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: ${{ contains(fromJson('["raspian:trixie","raspian:bullseye"]'), github.event.inputs.os) && fromJson(format('["{0}"]', github.event.inputs.os)) || fromJson('["raspian:trixie","raspian:bullseye"]') }}
+        os: [raspian:trixie, raspian:bullseye]
 
     steps:
       - name: Set up Docker Buildx
