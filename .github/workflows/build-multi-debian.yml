@@ -176,13 +176,6 @@ jobs:
       - name: List uploaded files (${{ matrix.arch }})
         run: ls -la ${{ env.PARENT_DIR }}/upload
 
-      - name: Upload arm artifacts (temporary)
-        uses: actions/upload-artifact@v7
-        with:
-          name: arm-${{ matrix.arch }}-${{ env.DIST_NAME }}
-          path: ${{ env.PARENT_DIR }}/upload/*.deb
-          retention-days: 1
-
   # --- Job 3: Build armv6 (Raspberry Pi OS / Raspbian) ---
   build-armv6:
     name: Build armv6 (${{ matrix.os }})
