@@ -289,11 +289,11 @@ jobs:
           path: ${{ env.UPLOAD_DIR }}/*.deb
           retention-days: 1
 
-  # --- Job 4: Combine and upload all artifacts ---
+  # --- Job 4: Combine and release from the RPi4 self-hosted runner ---
   upload-all:
     name: Upload all packages
     needs: [build-amd64, build-arm, build-armv6]
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, Linux, ARM]
     permissions:
       contents: write
     steps:
@@ -301,24 +301,30 @@ jobs:
         run: |
           echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
 
-      - name: Download all artifacts
+      - name: Download amd64 artifacts
         uses: actions/download-artifact@v6
         with:
+          pattern: amd64-*
           path: artifacts
+          merge-multiple: true
 
-      - name: List all downloaded files
-        run: find artifacts -name "*.deb" -exec ls -la {} \;
-
-      - name: Move all .deb files to a single directory
-        run: |
-          find artifacts -name "*.deb" -exec cp {} ${{ env.PARENT_DIR }}/upload/ \;
-
-      - name: Upload all .deb files as a single artifact
-        uses: actions/upload-artifact@v7
+      - name: Download armv6 artifacts
+        uses: actions/download-artifact@v6
         with:
-          name: all-debian-packages
-          path: ${{ env.PARENT_DIR }}/upload/*.deb
-          retention-days: 7
+          pattern: armv6-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Merge all .deb files into the RPi4 local upload directory
+        run: |
+          # The arm build (same runner) already placed its debs in PARENT_DIR/upload
+          mkdir -p ${{ env.PARENT_DIR }}/upload
+
+          # Copy in amd64 and armv6 debs downloaded from artifacts
+          find artifacts -name "*.deb" -exec cp -n {} ${{ env.PARENT_DIR }}/upload/ \;
+
+      - name: List all collected files
+        run: ls -la ${{ env.PARENT_DIR }}/upload
 
       - name: Create Release (if triggered by release)
         if: github.event_name == 'release'
