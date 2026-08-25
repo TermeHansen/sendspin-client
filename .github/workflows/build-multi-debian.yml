@@ -213,7 +213,7 @@ jobs:
 
           # Raspbian codename from the distro label (e.g. raspian:trixie -> trixie)
           CODENAME=$(echo "${{ matrix.os }}" | sed 's/raspian://')
-          IMAGE="vascoguito/raspios:armhf-${CODENAME}"
+          IMAGE="vascoguita/raspios:armhf-${CODENAME}"
           PLATFORM="linux/arm/v6"
           echo "Building for ${PLATFORM} using ${IMAGE}"
 
