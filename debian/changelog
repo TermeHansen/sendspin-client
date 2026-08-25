@@ -2,7 +2,7 @@ sendspin-client (0.2.0-1) unstable; urgency=medium
 
   * Auto-release of audio device on idle timeout for player role
   * Unified version management to use single source from version.txt
-  * Updated sendspin-cpp dependency from v0.6.1 to v0.7.0
+  * Updated sendspin-cpp dependency from v0.6.1 to v0.7.2
   * Remove unused controller code
   * Add armv6 (RPi 1) arch to releases
   * Add ubuntu 26.04 to releases
