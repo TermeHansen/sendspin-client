@@ -176,6 +176,12 @@ jobs:
       - name: List uploaded files (${{ matrix.arch }})
         run: ls -la ${{ env.PARENT_DIR }}/upload
 
+      - name: Clean up
+        run: |
+          # Clean up build directories to prevent permission issues
+          echo "Cleaning up build directories..."
+          rm -rf obj-*-linux-gnu*
+
   # --- Job 3: Build armv6 (Raspberry Pi OS / Raspbian) ---
   build-armv6:
     name: Build armv6 (${{ matrix.os }})
