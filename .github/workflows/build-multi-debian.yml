@@ -141,8 +141,7 @@ jobs:
             portaudio19-dev \
             libasound2-dev \
             libavahi-compat-libdnssd-dev \
-            avahi-daemon \
-            libatomic1
+            avahi-daemon
         env:
           DEBIAN_FRONTEND: noninteractive
 
@@ -154,7 +153,7 @@ jobs:
           fi
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v1
         with:
           submodules: recursive
 
@@ -195,7 +194,7 @@ jobs:
         run: ls -la ${{ env.PARENT_DIR }}/upload
 
       - name: Upload arm artifacts (temporary)
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v3
         with:
           name: arm-${{ matrix.arch }}-${{ env.DIST_NAME }}
           path: ${{ env.PARENT_DIR }}/upload/*.deb
