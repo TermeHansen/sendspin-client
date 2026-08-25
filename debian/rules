@@ -17,6 +17,14 @@ override_dh_auto_configure:
 		$$TOOLCHAIN_FLAG \
 		$$CMAKEFLAGS
 
+# ARMv6 (Raspberry Pi 1) has no hardware atomics, so the package needs
+# libatomic at runtime. Add it as an explicit dependency only for armv6 builds.
+override_dh_gencontrol:
+	if [ "$(DEB_HOST_ARCH)" = "armv6" ]; then \
+		sed -i 's/^misc:Depends=\(.*\)$$/misc:Depends=\1, libatomic1/; s/^misc:Depends=, /misc:Depends=/' debian/sendspin-client.substvars; \
+	fi
+	dh_gencontrol
+
 override_dh_auto_install:
 	dh_auto_install
 	# Install executable manually

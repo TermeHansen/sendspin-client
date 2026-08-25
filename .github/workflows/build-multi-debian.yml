@@ -225,6 +225,7 @@ jobs:
             -w /workspace \
             -u 0:0 \
             -e DEB_PACKAGE_NAME=${{ env.DEB_PACKAGE_NAME }} \
+            -e MATRIX_ARCH=${{ matrix.arch }} \
             -e MATRIX_OS=${{ matrix.os }} \
             ${IMAGE} \
             bash -c "
