@@ -63,6 +63,11 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Apply sendspin-cpp liveness patch
+        run: |
+          cd sendspin-cpp
+          git apply ../sendspin-cpp-liveness.patch
+
       - name: Build Debian package (amd64)
         run: |
           # Clean up old packages
@@ -107,7 +112,7 @@ jobs:
       fail-fast: false
       matrix:
         arch: ${{ (github.event_name == 'release' && fromJson('["armhf","arm64"]')) || (github.event.inputs.arch == 'all' && fromJson('["armhf","arm64"]')) || (github.event.inputs.arch == 'armhf' && fromJson('["armhf"]')) || (github.event.inputs.arch == 'arm64' && fromJson('["arm64"]')) || fromJson('[]') }}
-        os: [debian:bullseye, debian:trixie, ubuntu:26.04]
+        os: [debian:trixie, ubuntu:26.04]
     container:
       image: ${{ matrix.arch == 'armhf' && format('arm32v7/{0}', matrix.os) || matrix.os }}
 
@@ -143,6 +148,11 @@ jobs:
         uses: actions/checkout@v1
         with:
           submodules: recursive
+
+      - name: Apply sendspin-cpp liveness patch
+        run: |
+          cd sendspin-cpp
+          git apply ../sendspin-cpp-liveness.patch
 
       - name: Build Debian package (${{ matrix.arch }})
         run: |
