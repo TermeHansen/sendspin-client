@@ -63,6 +63,11 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Apply sendspin-cpp liveness patch
+        run: |
+          cd sendspin-cpp
+          git apply ../sendspin-cpp-liveness.patch
+
       - name: Build Debian package (amd64)
         run: |
           # Clean up old packages
@@ -143,6 +148,11 @@ jobs:
         uses: actions/checkout@v1
         with:
           submodules: recursive
+
+      - name: Apply sendspin-cpp liveness patch
+        run: |
+          cd sendspin-cpp
+          git apply ../sendspin-cpp-liveness.patch
 
       - name: Build Debian package (${{ matrix.arch }})
         run: |

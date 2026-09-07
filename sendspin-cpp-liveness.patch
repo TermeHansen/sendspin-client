@@ -1,0 +1,505 @@
+diff --git a/include/sendspin/config.h b/include/sendspin/config.h
+index 89977c6..c53466d 100644
+--- a/include/sendspin/config.h
++++ b/include/sendspin/config.h
+@@ -86,6 +86,21 @@ struct SendspinClientConfig {
+     int64_t time_burst_response_timeout_ms{
+         DEFAULT_BURST_TIMEOUT_MS};  ///< Milliseconds before a burst message times out
+ 
++    /// @brief Default inactivity timeout (ms) before an established connection is treated as dead
++    ///
++    /// A healthy peer produces periodic inbound traffic (at minimum, the server's time-sync
++    /// responses to the client's bursts), so a genuinely connected peer stays well within any
++    /// multi-burst window. Kept a few burst intervals above the ~10s burst cadence to absorb
++    /// scheduling and timer jitter.
++    static constexpr int64_t DEFAULT_RECEIVE_TIMEOUT_MS = 30000;
++
++    /// @brief Inactivity timeout (ms) for an established connection. If no message is received
++    /// from the peer within this window, the connection is considered dead (e.g. a half-open
++    /// socket left behind by a server that crashed without a close frame) and is dropped by the
++    /// connection manager's liveness watchdog. An outbound connection (`connect_to`) is then
++    /// re-established to the same URL with backoff until it succeeds. 0 disables the watchdog.
++    int64_t receive_timeout_ms{DEFAULT_RECEIVE_TIMEOUT_MS};
++
+     /// @brief Memory placement for the per-connection WebSocket payload reassembly buffer
+     /// (ESP-IDF only; ignored on host). Defaults to PREFER_EXTERNAL (SPIRAM).
+     MemoryLocation websocket_payload_location{MemoryLocation::PREFER_EXTERNAL};
+diff --git a/src/connection.cpp b/src/connection.cpp
+index 4a2497a..5bfb093 100644
+--- a/src/connection.cpp
++++ b/src/connection.cpp
+@@ -93,6 +93,13 @@ SS_HOT void SendspinConnection::dispatch_completed_message(bool is_text, int64_t
+         return;
+     }
+ 
++    // Liveness bookkeeping: refresh the last-inbound timestamp on every delivered message. This is
++    // the single receive funnel shared by all platforms and transports (host + ESP, client +
++    // server), so the connection manager's watchdog observes every message without per-transport
++    // hooks. Stamped before dispatch so even a message that later tears the connection down counts
++    // as liveness for the interval in which it arrived.
++    this->stamp_inbound_receive(receive_time);
++
+     if (!this->message_dispatch_enabled_.load(std::memory_order_acquire)) {
+         this->reset_websocket_payload();
+         return;
+diff --git a/src/connection.h b/src/connection.h
+index 1c4f4fe..bbe8f42 100644
+--- a/src/connection.h
++++ b/src/connection.h
+@@ -137,6 +137,40 @@ public:
+         return this->provisional_time_us_.load(std::memory_order_relaxed);
+     }
+ 
++    /// @brief Returns the monotonic timestamp of the last inbound message, or 0 if none yet.
++    int64_t get_last_inbound_time_us() const {
++        return this->last_inbound_time_us_.load(std::memory_order_relaxed);
++    }
++
++    /// @brief Records the current time as the last inbound message timestamp.
++    /// Called from dispatch_completed_message(), on the network thread.
++    void stamp_inbound_receive(int64_t now_us) {
++        this->last_inbound_time_us_.store(now_us, std::memory_order_relaxed);
++    }
++
++    /// @brief Marks this connection as an outbound client connection (created by connect_to()).
++    /// @param outbound True for outbound connections, false for inbound (server-accepted) ones.
++    void set_outbound(bool outbound) {
++        this->outbound_ = outbound;
++    }
++
++    /// @brief Returns whether this connection was created by connect_to() (outbound).
++    /// @return True for outbound connections, false for inbound ones.
++    bool is_outbound() const {
++        return this->outbound_;
++    }
++
++    /// @brief Sets the outbound target URL (only meaningful for outbound connections).
++    /// Set by connect_to() when the connection is created.
++    void set_target_url(std::string url) {
++        this->target_url_ = std::move(url);
++    }
++
++    /// @brief Returns the outbound target URL, or empty for inbound connections.
++    const std::string& get_target_url() const {
++        return this->target_url_;
++    }
++
+     /// @brief Sends a text message to the server with a completion callback
+     /// @param message The message string to send.
+     /// @param cb Callback invoked with the send result. On asynchronous transports it is not
+@@ -410,6 +444,12 @@ protected:
+     /// the main loop (provisional-connection timeout check). 0 = not yet set.
+     std::atomic<int64_t> provisional_time_us_{0};
+ 
++    /// Monotonic timestamp (platform_time_us()) of the last inbound message received on this
++    /// connection. Stamped in dispatch_completed_message() on the network thread and read by the
++    /// connection manager's liveness watchdog on the main loop, hence atomic. 0 = nothing received
++    /// yet.
++    std::atomic<int64_t> last_inbound_time_us_{0};
++
+     /// EMA (microseconds) of format_client_time_message() duration. Atomic because the ESP
+     /// server worker thread updates it while the hub thread reads it for logging.
+     std::atomic<int64_t> serialize_ema_us_{0};
+@@ -456,6 +496,17 @@ protected:
+ 
+     /// Memory placement preference for `websocket_payload_` allocations (ESP-IDF only).
+     MemoryLocation websocket_payload_location_{MemoryLocation::PREFER_EXTERNAL};
++
++    /// True for outbound connections created by connect_to() (the client connects out to a server),
++    /// false for inbound connections accepted by the local WS server. Set at admission by the
++    /// connection manager, read by the liveness watchdog to decide whether a reaped connection
++    /// should be transparently reconnected. Main-thread only.
++    bool outbound_{false};
++
++    /// Outbound target URL for connections created by connect_to(); empty for inbound ones. Set
++    /// by connect_to() and read by the liveness watchdog to reconnect after the connection is
++    /// reaped. Main-thread only.
++    std::string target_url_;
+ };
+ 
+ }  // namespace sendspin
+diff --git a/src/connection_manager.cpp b/src/connection_manager.cpp
+index bd2dd8e..9847029 100644
+--- a/src/connection_manager.cpp
++++ b/src/connection_manager.cpp
+@@ -23,6 +23,7 @@
+ #include "time_burst.h"
+ #include "ws_server.h"
+ 
++#include <algorithm>
+ #include <array>
+ #include <utility>
+ 
+@@ -98,6 +99,8 @@ ConnectionManager::~ConnectionManager() {
+         nursery = std::move(this->nursery_);
+         retries = std::move(this->hello_retries_);
+         releases = std::move(this->deferred_releases_);
++        this->reconnect_retries_.clear();
++        this->reconnect_pending_.store(false, std::memory_order_release);
+         // Keep the hint atomics in sync with the now-empty containers (has_pending_events_ was
+         // handled above under its own mutex). Nothing reads them again after destruction, but
+         // this keeps the "atomic mirrors container" invariant unconditional rather than carving
+@@ -121,6 +124,8 @@ void ConnectionManager::connect_to(const std::string& url) {
+     client_conn->set_auto_reconnect(false);
+     client_conn->set_task_config(this->client_->config_.websocket_priority);
+     client_conn->set_websocket_payload_location(this->client_->config_.websocket_payload_location);
++    client_conn->set_outbound(true);
++    client_conn->set_target_url(url);
+ 
+     this->setup_connection_callbacks(client_conn.get());
+     client_conn->on_connected_cb = [this](SendspinConnection* c) {
+@@ -357,9 +362,18 @@ void ConnectionManager::loop() {
+                     conn->disable_message_dispatch();
+                     this->queue_deferred_release(std::move(conn),
+                                                  SendspinGoodbyeReason::ANOTHER_SERVER);
++                    // A released connection never admits its target (it loses the handoff), so it
++                    // does not clear reconnect state. Only the winner, below, does.
+                     continue;
+                 }
+ 
++                // A promoted winner removes any pending reconnect state for its target: if this is
++                // an outbound reconnection after a liveness reap (or a fresh connect_to), the
++                // latest attempt has succeeded, so the backoff timer for that URL is done.
++                if (this->current_connection_->is_outbound()) {
++                    this->on_target_admitted(this->current_connection_->get_target_url());
++                }
++
+                 // Notify the client and publish state, only for the winner and never for a
+                 // connection that is about to receive a goodbye.
+                 this->client_->on_handshake_complete(this->current_connection_.get());
+@@ -472,6 +486,59 @@ void ConnectionManager::loop() {
+     // Send the goodbyes and release the connections reaped by the nursery tick, outside the lock.
+     this->flush_deferred_releases();
+ 
++    // Liveness watchdog for the established current connection: a peer that dies without closing
++    // (half-open socket) would otherwise sit admitted forever with is_connected() true. Reap it
++    // once no inbound message has arrived within the configured timeout. Runs under the same lock
++    // as drop_connection, which it uses to tear the stale connection down. The reconnect scan below
++    // then re-establishes an outbound connection with backoff.
++    if (this->client_->config_.receive_timeout_ms > 0) {
++        const int64_t now_us = platform_time_us();
++        {
++            std::lock_guard<std::mutex> lock(this->conn_ptr_mutex_);
++            if (this->current_connection_ != nullptr) {
++                this->reap_if_stale(this->current_connection_.get(), now_us);
++            }
++        }
++        this->flush_deferred_releases();
++    }
++
++    // Reconnect scan: drive any pending outbound reconnect backoff timers. Kept separate from the
++    // nursery gate because after a liveness reap both the current slot and the nursery can be empty
++    // while a reconnect is still pending. connect_to() is issued outside the lock (it re-enters
++    // conn_ptr_mutex_ itself), then backoff is advanced under the lock. Gated on reconnect_pending_
++    // so an idle tick with no reconnect in flight locks for nothing.
++    if (this->reconnect_pending_.load(std::memory_order_acquire)) {
++        const int64_t now_us = platform_time_us();
++
++        // Collect the URLs whose backoff timer has elapsed, and advance each entry's schedule:
++        // doubling the delay and setting the next attempt time for a later failure. connect_to()
++        // calls are queued on client_ directly and reconnect_retries_ entries that are not yet
++        // elapsed are left untouched; the entry is cleared only once a connection to its URL is
++        // admitted (on_target_admitted).
++        std::vector<std::string> due_urls;
++        {
++            std::lock_guard<std::mutex> lock(this->conn_ptr_mutex_);
++            for (auto& retry : this->reconnect_retries_) {
++                if (now_us < retry.next_attempt_us) {
++                    continue;
++                }
++                due_urls.push_back(retry.url);
++                SS_LOGI(TAG, "Attempting to reconnect to %s", retry.url.c_str());
++                // Grow the backoff for the next attempt (doubling, capped) and schedule it now so
++                // a rapid sequence of reaps cannot issue back-to-back connects.
++                retry.delay_ms =
++                    std::min<uint32_t>(retry.delay_ms * 2, ReconnectState::MAX_RETRY_DELAY_MS);
++                retry.next_attempt_us = now_us + static_cast<int64_t>(retry.delay_ms) * US_PER_MS;
++            }
++        }
++
++        // Issue the reconnects without holding the lock.
++        for (const auto& url : due_urls) {
++            this->client_->connect_to(url);
++        }
++    }
++    this->flush_deferred_releases();
++
+     // Drive the platform ws_server's pending-upgrade reap (ESP: close sessions that never
+     // complete their upgrade; host: no-op, IXWebSocket times them out itself). Called with no
+     // manager lock held.
+@@ -809,6 +876,93 @@ void ConnectionManager::drop_connection(SendspinConnection* conn,
+     // Not a managed connection: nothing to do (already released by an earlier event this tick).
+ }
+ 
++// ============================================================================
++// Liveness watchdog / reconnect
++// ============================================================================
++
++bool ConnectionManager::reap_if_stale(SendspinConnection* conn, int64_t now_us) {
++    // Note: caller must hold conn_ptr_mutex_
++    if (conn == nullptr) {
++        return false;
++    }
++
++    // Only reap established connections. A connection still in the nursery has its own establish
++    // deadline; a pre-establishment peer that goes quiet is handled there and by the transport's
++    // upgrade timeouts.
++    if (!conn->is_handshake_complete()) {
++        return false;
++    }
++
++    // No inbound traffic yet and still no server/hello would be unusual for an established
++    // connection; treat "never received anything since admission" conservatively by skipping the
++    // reap until at least one message has arrived (avoids reacting to a tiny startup window).
++    const int64_t last_inbound = conn->get_last_inbound_time_us();
++    if (last_inbound == 0) {
++        return false;
++    }
++
++    const int64_t timeout_us = this->client_->config_.receive_timeout_ms * US_PER_MS;
++    if (now_us - last_inbound < timeout_us) {
++        return false;
++    }
++
++    const char* kind = conn->is_outbound() ? "outbound" : "inbound";
++    SS_LOGW(TAG, "Connection idle for >%lld ms (%s), treating as dead and dropping",
++            static_cast<long long>(this->client_->config_.receive_timeout_ms), kind);
++
++    // Queue a reconnect for an outbound connection whose target socket went dead, so the manager
++    // re-establishes it with backoff. Inbound connections are left to the discovery flow to
++    // re-admit.
++    if (conn->is_outbound() && !conn->get_target_url().empty()) {
++        this->arm_reconnect(conn->get_target_url());
++    }
++
++    // Tear down via the goodbye path (not a bare nullopt release): drop_connection queues a
++    // DeferredRelease that flush_deferred_releases() performs outside the lock through
++    // disconnect_and_release(), which holds a shared_ptr through the transport stop. That keeps
++    // the object alive while the transport's close callback runs (it calls shared_from_this());
++    // a bare nullopt release would let the destructor stop the half-open transport with the
++    // reference count already at 0 and throw bad_weak_ptr.
++    this->drop_connection(conn, SendspinGoodbyeReason::ANOTHER_SERVER);
++    return true;
++}
++
++void ConnectionManager::arm_reconnect(const std::string& url) {
++    // Note: caller must hold conn_ptr_mutex_
++    if (url.empty()) {
++        return;
++    }
++    for (auto& retry : this->reconnect_retries_) {
++        if (retry.url == url) {
++            // Re-arm in place (a second reap before the first attempt) without resetting the
++            // already-accumulated backoff.
++            retry.next_attempt_us = platform_time_us();
++            return;
++        }
++    }
++    ReconnectState retry;
++    retry.url = url;
++    retry.next_attempt_us = platform_time_us();
++    retry.delay_ms = ReconnectState::INITIAL_RETRY_DELAY_MS;
++    this->reconnect_retries_.push_back(std::move(retry));
++    this->reconnect_pending_.store(true, std::memory_order_release);
++}
++
++void ConnectionManager::on_target_admitted(const std::string& url) {
++    // Note: caller must hold conn_ptr_mutex_
++    if (url.empty()) {
++        return;
++    }
++    for (auto it = this->reconnect_retries_.begin(); it != this->reconnect_retries_.end(); ++it) {
++        if (it->url == url) {
++            this->reconnect_retries_.erase(it);
++            this->reconnect_pending_.store(!this->reconnect_retries_.empty(),
++                                           std::memory_order_release);
++            return;
++        }
++    }
++}
++
+ bool ConnectionManager::should_switch_to_new_server(SendspinConnection* current,
+                                                     SendspinConnection* new_conn) const {
+     auto new_reason = new_conn->get_connection_reason();
+diff --git a/src/connection_manager.h b/src/connection_manager.h
+index c3c5366..1a29502 100644
+--- a/src/connection_manager.h
++++ b/src/connection_manager.h
+@@ -87,6 +87,22 @@ struct HelloRetryState {
+     uint8_t attempts{3};                                      ///< Remaining retry attempts
+ };
+ 
++/// @brief Reconnect state for an outbound (connect_to) connection dropped by the liveness watchdog
++///
++/// A connection lost to dead-peer reaping is re-established with exponential backoff. Only outbound
++/// connections carry a target URL (set in connect_to); inbound server connections are dropped and
++/// left to the discovery flow to re-establish. State survives until a connection to the same target
++/// is admitted, as identified by the URL hash.
++struct ReconnectState {
++    /// @brief WebSocket URL to reconnect to. Used as the identity key for matching state to an
++    /// admitted connection.
++    std::string url;
++    int64_t next_attempt_us{0};  ///< Earliest time (us) to issue the next connect_to
++    static constexpr uint32_t INITIAL_RETRY_DELAY_MS = 1000U;  ///< Initial backoff (ms)
++    uint32_t delay_ms{INITIAL_RETRY_DELAY_MS};                 ///< Current backoff delay
++    static constexpr uint32_t MAX_RETRY_DELAY_MS = 30000U;     ///< Backoff ceiling (ms)
++};
++
+ /**
+  * @brief Manages WebSocket connection lifecycle.
+  *
+@@ -290,6 +306,32 @@ private:
+     /// @param conn The connection whose retry state should be dropped.
+     void remove_hello_retry(SendspinConnection* conn);
+ 
++    // ========================================
++    // Liveness watchdog / reconnect
++    // ========================================
++    /// @brief Reaps an established connection that has stopped receiving messages.
++    ///
++    /// A peer that dies without closing (half-open socket) leaves the connection admitted with
++    /// is_connected() still true and periodic time bursts timing out forever. Armed only against
++    /// established connections (handshake complete) and skipped when the timeout is disabled. An
++    /// outbound connection is queued for backoff re-connect; an inbound one is dropped and left to
++    /// the discovery flow. Caller must hold conn_ptr_mutex_.
++    ///
++    /// @param conn The current connection to check.
++    /// @param now_us Current platform time.
++    /// @return True if the connection was reaped.
++    bool reap_if_stale(SendspinConnection* conn, int64_t now_us);
++
++    /// @brief Queues (or re-arms) the reconnect backoff for an outbound connection's target URL.
++    /// Caller must hold conn_ptr_mutex_.
++    /// @param url The WebSocket URL to reconnect to.
++    void arm_reconnect(const std::string& url);
++
++    /// @brief Clears reconnect state for a target once a connection to it has been admitted.
++    /// Caller must hold conn_ptr_mutex_.
++    /// @param url The WebSocket URL of the admitted connection.
++    void on_target_admitted(const std::string& url);
++
+     // ========================================
+     // Connection lifecycle
+     // ========================================
+@@ -345,6 +387,7 @@ private:
+     std::vector<DeferredRelease> deferred_releases_;  // Queued releases; see DeferredRelease
+     std::vector<NurseryEntry> nursery_;               // Unproven connections awaiting establishment
+     std::vector<HelloRetryState> hello_retries_;      // One entry per connection awaiting its hello
++    std::vector<ReconnectState> reconnect_retries_;   // Outbound connect_to() targets awaiting retry
+     std::vector<std::shared_ptr<SendspinConnection>> pending_connected_events_;
+     std::vector<std::shared_ptr<SendspinConnection>> pending_disconnect_events_;
+ 
+@@ -389,6 +432,12 @@ private:
+     /// queue_deferred_release()) and after the drain swap in flush_deferred_releases(). Lets
+     /// flush_deferred_releases() early-return without locking when nothing is queued.
+     std::atomic<size_t> deferred_size_{0};
++
++    /// True whenever reconnect_retries_ is non-empty. Refreshed under conn_ptr_mutex_ at every
++    /// mutation. Lets loop() skip the reconnect scan (and its lock) when no outbound target awaits
++    /// a retry, including the common empty-nursery/no-current steady state where an idle tick would
++    /// otherwise lock for nothing.
++    std::atomic<bool> reconnect_pending_{false};
+ };
+ 
+ }  // namespace sendspin
+diff --git a/tests/test_connection_lifecycle.cpp b/tests/test_connection_lifecycle.cpp
+index be2bf82..fdc982f 100644
+--- a/tests/test_connection_lifecycle.cpp
++++ b/tests/test_connection_lifecycle.cpp
+@@ -56,6 +56,8 @@ constexpr uint16_t EVICT_TEST_PORT = 18972;
+ constexpr uint16_t REJECT_TEST_PORT = 18973;
+ constexpr uint16_t STALL_LISTEN_PORT = 18981;
+ constexpr uint16_t ADMIT_TEST_PORT = 18982;
++constexpr uint16_t STALE_INBOUND_PORT = 18991;
++constexpr uint16_t RECONNECT_PORT = 18992;
+ 
+ std::string server_url(uint16_t port) {
+     return "ws://127.0.0.1:" + std::to_string(port) + "/sendspin";
+@@ -598,3 +600,87 @@ TEST(ConnectionLifecycle, FullNurseryOfLivePeersRejectsNewcomer) {
+     EXPECT_FALSE(mute_a.closed());
+     EXPECT_FALSE(mute_b.closed());
+ }
++
++// Liveness watchdog: an established inbound connection that stops sending messages (a peer that
++// goes quietly offline without closing) must be reaped once it has been silent for
++// receive_timeout_ms. The FakeServer establishes through the hello exchange and then sends nothing
++// further (it only ever responds to client/hello), which exercises exactly the half-open scenario.
++TEST(ConnectionLifecycle, StaleInboundConnectionIsReaped) {
++    SendspinClientConfig config = make_config(STALE_INBOUND_PORT);
++    config.receive_timeout_ms = 1000;  // short for the test
++    TestNetworkProvider network;
++    SendspinClient client(config);
++    client.set_network_provider(&network);
++    ASSERT_TRUE(client.start_server());
++    pump_for(client, 50);
++
++    FakeServer server(server_url(STALE_INBOUND_PORT), "server-stale");
++    EXPECT_TRUE(pump_until(
++        client, [&] { return client.is_connected(); }, 4000));
++    EXPECT_FALSE(server.closed());
++
++    // The connection is now established but the peer sends nothing further; the watchdog must
++    // reap it within roughly receive_timeout_ms (plus margin for the 10ms loop tick).
++    EXPECT_TRUE(pump_until(
++        client, [&] { return !client.is_connected(); }, 5000));
++
++    // The reap drops the connection without a goodbye (the peer is unresponsive, so a goodbye
++    // would not be meaningful); the release closes the local transport. The client must no longer
++    // report the connection as active, and no reconnect is armed for an inbound connection (those
++    // are left to the discovery flow).
++    EXPECT_FALSE(client.is_connected());
++}
++
++// Liveness watchdog with reconnection: an outbound (connect_to) connection that goes silently
++// dead must be reaped and then transparently re-established to the same URL by the manager's
++// reconnect backoff.
++TEST(ConnectionLifecycle, OutboundStaleConnectionReconnects) {
++    // Backend that establishes (answers server/hello) then goes silent.
++    ix::WebSocketServer backend(RECONNECT_PORT, "127.0.0.1");
++    std::atomic<int> hello_count{0};
++    backend.setOnConnectionCallback([&hello_count](const std::weak_ptr<ix::WebSocket>& weak_ws,
++                                                   const std::shared_ptr<ix::ConnectionState>&) {
++        auto ws = weak_ws.lock();
++        if (!ws) {
++            return;
++        }
++        ws->setOnMessageCallback([weak_ws, &hello_count](const ix::WebSocketMessagePtr& msg) {
++            if (msg->type == ix::WebSocketMessageType::Message &&
++                msg->str.find("client/hello") != std::string::npos) {
++                hello_count.fetch_add(1);
++                if (auto locked = weak_ws.lock()) {
++                    locked->send(server_hello_json("server-reconnect", "discovery"));
++                }
++            }
++        });
++    });
++    ASSERT_TRUE(backend.listen().first);
++    backend.start();
++
++    SendspinClientConfig config = make_config(RECONNECT_PORT + 1);
++    config.receive_timeout_ms = 1000;
++    TestNetworkProvider network;
++    SendspinClient client(config);
++    client.set_network_provider(&network);
++    ASSERT_TRUE(client.start_server());
++    pump_for(client, 50);
++
++    client.connect_to(server_url(RECONNECT_PORT));
++    EXPECT_TRUE(pump_until(
++        client, [&] { return client.is_connected(); }, 4000));
++    EXPECT_EQ(hello_count.load(), 1);
++
++    // The backend sends nothing further, so the connection goes quiet; the watchdog must reap it
++    // and then reconnect, re-running the hello handshake (hello_count becomes 2).
++    EXPECT_TRUE(pump_until(
++        client, [&] { return !client.is_connected(); }, 4000));
++    EXPECT_TRUE(pump_until(
++        client, [&] { return client.is_connected() && hello_count.load() >= 2; }, 5000));
++    auto info = client.get_server_information();
++    ASSERT_TRUE(info.has_value());
++    EXPECT_EQ(info->server_id, "server-reconnect");
++
++    client.disconnect(SendspinGoodbyeReason::SHUTDOWN);
++    pump_for(client, 100);
++    backend.stop();
++}
