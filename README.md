@@ -123,6 +123,9 @@ ALSA_MIXER_SPEC = "1:Digital"
 # Auto-release hardware after 60 seconds
 IDLE_TIMEOUT = 60
 
+# Drop a silent connection after 60 seconds (0 disables the watchdog)
+LIVENESS_TIMEOUT = 60
+
 # Log level
 LOG_LEVEL = "info"
 ```
