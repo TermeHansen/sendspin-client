@@ -1,8 +1,10 @@
 sendspin-client (0.2.1-1) unstable; urgency=medium
 
-  * Pathcing sendspin-cpp
+  * Updated sendspin-cpp to bbc5958: drop established connection after 60s of
+    inbound silence so a half-open socket reconnects instead of hanging
+  * Removed local sendspin-cpp liveness patch, superseded by the upstream fix
 
- -- TermeHansen <terme@hansen>  Mon, 07 Sep 2026 12:00:00 +0000
+ -- TermeHansen <terme@hansen>  Fri, 11 Sep 2026 12:00:00 +0000
 
 sendspin-client (0.2.0-1) unstable; urgency=medium
 

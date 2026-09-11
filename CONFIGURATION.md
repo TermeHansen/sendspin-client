@@ -20,6 +20,7 @@ ANOTHER_KEY = "quoted value"
 | `AUDIO_DEVICE` | integer | -1 (default) | Audio device index to use |
 | `ALSA_MIXER_SPEC` | string | "" (empty) | ALSA mixer specification (format: "card:control") |
 | `IDLE_TIMEOUT` | integer | 0 (disabled) | Idle timeout in seconds before releasing the audio device |
+| `LIVENESS_TIMEOUT` | integer | 60 (library default) | Seconds of inbound silence before an established connection is dropped as dead and reconnected (0 = disable) |
 | `LOG_LEVEL` | string | "info" | Log level: none, error, warn, info, debug, verbose |
 | `CONNECT_URL` | string | "" (empty) | WebSocket URL to connect to (leave empty to listen) |
 | `ENABLE_MDNS` | boolean | true | Enable mDNS service advertisement |
@@ -49,6 +50,9 @@ ENABLE_MDNS = true
 
 # Release the audio hardware so other apps can use it when stopped for 60s
 IDLE_TIMEOUT = 60
+
+# Drop a silent connection after 30 seconds (0 disables the watchdog)
+LIVENESS_TIMEOUT = 30
 ```
 
 ## 🚀 Usage
@@ -264,6 +268,10 @@ ENABLE_MDNS=true
 
 # Idle timeout in seconds before releasing the audio device (0 = disable)
 IDLE_TIMEOUT=0
+
+# Seconds of inbound silence before a dead connection is dropped and reconnected
+# (0 = disable; library default is 60)
+# LIVENESS_TIMEOUT=60
 ```
 
 ## 🎯 Best Practices

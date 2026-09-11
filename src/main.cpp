@@ -163,6 +163,7 @@ int main(int argc, char* argv[]) {
     std::string alsa_mixer_spec;
     std::string config_file;
     int idle_timeout_s = 0;
+    int liveness_timeout_s = -1;  // -1 = library default (derived from burst settings, 60 s)
     int opt;
     while ((opt = getopt(argc, argv, "u:l:vqhd:m:Lc:t:")) != -1) {
         switch (opt) {
@@ -236,6 +237,10 @@ int main(int argc, char* argv[]) {
             if (idle_timeout_s == 0 && config_parser.has_key("IDLE_TIMEOUT")) {
                 idle_timeout_s = config_parser.get_int("IDLE_TIMEOUT", 0);
             }
+
+            if (config_parser.has_key("LIVENESS_TIMEOUT")) {
+                liveness_timeout_s = config_parser.get_int("LIVENESS_TIMEOUT", 60);
+            }
             
             // Set log level from config if not specified on command line
             if (optind == 1) {  // No command-line options were specified
@@ -272,6 +277,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  ALSA Mixer    : %s\n", alsa_mixer_spec.empty() ? "None" : alsa_mixer_spec.c_str());
     fprintf(stderr, "  Connect URL   : %s\n", connect_url.empty() ? "Listen Mode (Server)" : connect_url.c_str());
     fprintf(stderr, "  Idle Timeout  : %s\n", idle_timeout_s == 0 ? "inaktiv" : (std::to_string(idle_timeout_s) + " seconds").c_str());
+    fprintf(stderr, "  Liveness      : %s\n", liveness_timeout_s < 0 ? "default (60 s)" : (liveness_timeout_s == 0 ? "disabled" : (std::to_string(liveness_timeout_s) + " seconds").c_str()));
     const char* log_level_str = "info";
     switch (log_level) {
         case LogLevel::NONE: log_level_str = "none"; break;
@@ -311,6 +317,12 @@ int main(int argc, char* argv[]) {
     config.product_name = "sendspin-client";
     config.manufacturer = "sendspin-cpp";
     config.software_version = PROJECT_VERSION;
+
+    if (liveness_timeout_s >= 0) {
+        // Liveness watchdog: drop an established connection after this many seconds of inbound
+        // silence (0 disables). The library default is derived from the burst settings (60 s).
+        config.liveness_timeout_ms = static_cast<int64_t>(liveness_timeout_s) * 1000;
+    }
 
     // Create audio output and client
 #ifdef SENDSPIN_HAS_PORTAUDIO
