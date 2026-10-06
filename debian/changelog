@@ -5,6 +5,7 @@ sendspin-client (0.3.0-1) unstable; urgency=medium
     default on): outbound connections retry with 1 s doubling backoff up to 30 s,
     inbound connections are left to their server
   * Adopted the sendspin-cpp v0.8.0 start()/stop() lifecycle
+  * Added a reconnect integration test (CTest) and a tests CI workflow
 
  -- TermeHansen <terme@hansen>  Tue, 06 Oct 2026 21:40:00 +0000
 

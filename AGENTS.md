@@ -90,9 +90,10 @@ CMake build (see `debian/README.md`).
   `src/main.cpp`).
 - C++20; Doxygen `///` comments for public APIs, matching the submodule
   style.
-- No test suite exists at the client level. Verify changes by building and
-  running the binary (`-L` to list audio devices, `-v` for verbose logs).
-  The submodule has its own tests under `sendspin-cpp/tests/`.
+- Tests: `tests/reconnect_test.py` drives the real binary against a
+  WebSocket stub and is registered with CTest. Run with
+  `cmake -B build -DBUILD_TESTING=ON && ctest --test-dir build`. The
+  submodule has its own unit tests under `sendspin-cpp/tests/`.
 - When adding or changing a config key, update all three places:
   `src/main.cpp` (where keys are read via the generic parser),
   `CONFIGURATION.md`, and the example in `debian/sendspin-client.conf.example`.
