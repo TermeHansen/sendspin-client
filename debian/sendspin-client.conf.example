@@ -51,6 +51,13 @@
 # Default: true
 # ENABLE_MDNS = true
 
+# Reconnect to CONNECT_URL after the connection is dropped as dead
+# (see LIVENESS_TIMEOUT). Applies to outbound connections only; inbound
+# (discovery) connections are left to their server to reconnect.
+# Backoff: 1 s doubling up to 30 s.
+# Default: true
+# RECONNECT_ON_LOSS = true
+
 
 # ====================================
 # LOGGING

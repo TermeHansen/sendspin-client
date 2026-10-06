@@ -46,6 +46,7 @@
 
 #include <arpa/inet.h>
 
+#include <algorithm>
 #include <atomic>
 #include "config_parser.h"
 #include <chrono>
@@ -150,6 +151,47 @@ static bool parse_log_level(const char* str, LogLevel& level) {
     return false;
 }
 
+// Reconnect policy for outbound connections (-u / CONNECT_URL).
+//
+// The sendspin-cpp liveness watchdog drops a connection whose inbound silence exceeds the
+// timeout, but upstream leaves reconnection to the consumer (sendspin-cpp v0.8.0): only this
+// client knows whether it drives an outbound connection and which policy fits. This ports the
+// behavior of the local sendspin-cpp patch shipped with v0.2.1: the backoff arms only after a
+// connection has been established, the first retry is immediate, the delay doubles per attempt
+// up to RETRY_DELAY_MAX_S, and everything resets once the target answers again. Inbound
+// (discovery) connections are never reconnected here; their server is expected to reconnect.
+struct OutboundReconnect {
+    bool enabled{false};
+    std::string url;
+    bool was_connected{false};
+    std::chrono::steady_clock::time_point next_attempt{std::chrono::steady_clock::now()};
+    uint32_t delay_s{1};
+
+    static constexpr uint32_t RETRY_DELAY_MAX_S = 30;
+
+    void tick(SendspinClient& client) {
+        if (!enabled) {
+            return;
+        }
+        if (client.is_connected()) {
+            this->was_connected = true;
+            this->delay_s = 1;
+            return;
+        }
+        if (!this->was_connected || std::chrono::steady_clock::now() < this->next_attempt) {
+            return;
+        }
+        fprintf(stderr, ">>> Connection lost, reconnecting to %s\n", this->url.c_str());
+        client.connect_to(this->url);
+        // Double the backoff before scheduling the next attempt (first retry is immediate, the
+        // next waits out the doubled delay), capped. Scheduling now — not after the connect
+        // resolves — bounds the attempt rate for a target that fails silently.
+        this->delay_s = std::min<uint32_t>(this->delay_s * 2, RETRY_DELAY_MAX_S);
+        this->next_attempt = std::chrono::steady_clock::now() +
+                             std::chrono::seconds(this->delay_s);
+    }
+};
+
 int main(int argc, char* argv[]) {
     // Set up signal handler for clean shutdown
     std::signal(SIGINT, signal_handler);
@@ -164,6 +206,7 @@ int main(int argc, char* argv[]) {
     std::string config_file;
     int idle_timeout_s = 0;
     int liveness_timeout_s = -1;  // -1 = library default (derived from burst settings, 60 s)
+    bool reconnect_on_loss = true;  // Reconnect an outbound (-u) connection after liveness loss
     int opt;
     while ((opt = getopt(argc, argv, "u:l:vqhd:m:Lc:t:")) != -1) {
         switch (opt) {
@@ -241,6 +284,10 @@ int main(int argc, char* argv[]) {
             if (config_parser.has_key("LIVENESS_TIMEOUT")) {
                 liveness_timeout_s = config_parser.get_int("LIVENESS_TIMEOUT", 60);
             }
+
+            if (config_parser.has_key("RECONNECT_ON_LOSS")) {
+                reconnect_on_loss = config_parser.get_bool("RECONNECT_ON_LOSS", true);
+            }
             
             // Set log level from config if not specified on command line
             if (optind == 1) {  // No command-line options were specified
@@ -278,6 +325,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  Connect URL   : %s\n", connect_url.empty() ? "Listen Mode (Server)" : connect_url.c_str());
     fprintf(stderr, "  Idle Timeout  : %s\n", idle_timeout_s == 0 ? "inaktiv" : (std::to_string(idle_timeout_s) + " seconds").c_str());
     fprintf(stderr, "  Liveness      : %s\n", liveness_timeout_s < 0 ? "default (60 s)" : (liveness_timeout_s == 0 ? "disabled" : (std::to_string(liveness_timeout_s) + " seconds").c_str()));
+    fprintf(stderr, "  Reconnect     : %s\n", reconnect_on_loss ? "on" : "off");
     const char* log_level_str = "info";
     switch (log_level) {
         case LogLevel::NONE: log_level_str = "none"; break;
@@ -503,7 +551,7 @@ int main(int argc, char* argv[]) {
     // Start the server
     fprintf(stderr, "Starting Sendspin basic client on port %u...\n", SENDSPIN_PORT);
 
-    if (!client.start_server()) {
+    if (!client.start()) {
         fprintf(stderr, "Failed to start server\n");
         return 1;
     }
@@ -517,9 +565,12 @@ int main(int argc, char* argv[]) {
     }
 
     // Auto-connect if a URL was provided via -u
+    OutboundReconnect reconnect;
     if (!connect_url.empty()) {
         fprintf(stderr, "Connecting to %s...\n", connect_url.c_str());
         client.connect_to(connect_url);
+        reconnect.enabled = reconnect_on_loss;
+        reconnect.url = connect_url;
     }
 
     fprintf(stderr, "Press Ctrl+C to stop.\n\n");
@@ -530,6 +581,7 @@ int main(int argc, char* argv[]) {
     bool last_muted = player.get_muted();
     while (running.load()) {
         client.loop();
+        reconnect.tick(client);
 #ifdef SENDSPIN_HAS_PORTAUDIO
         // Sync audio sink volume periodically (catches all volume change sources)
         if (++tick % 25 == 0) {
@@ -565,7 +617,7 @@ int main(int argc, char* argv[]) {
 
     fprintf(stderr, "\nShutting down...\n");
     mdns.stop();
-    client.disconnect(SendspinGoodbyeReason::SHUTDOWN);
+    client.stop();
 
 #ifndef SENDSPIN_HAS_PORTAUDIO
     fprintf(stderr, "Total audio bytes received: %zu\n", null_audio_total_bytes);

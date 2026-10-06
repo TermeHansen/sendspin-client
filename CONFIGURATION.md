@@ -20,7 +20,8 @@ ANOTHER_KEY = "quoted value"
 | `AUDIO_DEVICE` | integer | -1 (default) | Audio device index to use |
 | `ALSA_MIXER_SPEC` | string | "" (empty) | ALSA mixer specification (format: "card:control") |
 | `IDLE_TIMEOUT` | integer | 0 (disabled) | Idle timeout in seconds before releasing the audio device |
-| `LIVENESS_TIMEOUT` | integer | 60 (library default) | Seconds of inbound silence before an established connection is dropped as dead and reconnected (0 = disable) |
+| `LIVENESS_TIMEOUT` | integer | 60 (library default) | Seconds of inbound silence before an established connection is dropped as dead (0 = disable) |
+| `RECONNECT_ON_LOSS` | boolean | true | Reconnect to `CONNECT_URL` after the liveness watchdog drops the connection. Outbound connections only; inbound (discovery) connections are left to their server. Backoff: 1 s doubling up to 30 s. |
 | `LOG_LEVEL` | string | "info" | Log level: none, error, warn, info, debug, verbose |
 | `CONNECT_URL` | string | "" (empty) | WebSocket URL to connect to (leave empty to listen) |
 | `ENABLE_MDNS` | boolean | true | Enable mDNS service advertisement |
@@ -269,9 +270,12 @@ ENABLE_MDNS=true
 # Idle timeout in seconds before releasing the audio device (0 = disable)
 IDLE_TIMEOUT=0
 
-# Seconds of inbound silence before a dead connection is dropped and reconnected
+# Seconds of inbound silence before a dead connection is dropped (0 = disable)
 # (0 = disable; library default is 60)
 # LIVENESS_TIMEOUT=60
+
+# Reconnect to CONNECT_URL after the connection is dropped as dead (default true)
+# RECONNECT_ON_LOSS=true
 ```
 
 ## 🎯 Best Practices
