@@ -23,6 +23,7 @@
 ///
 /// Options:
 ///   -u URL        Connect to a WebSocket URL (e.g. ws://192.168.1.10:8928/sendspin)
+///   -p PORT       Port for the local WebSocket server (default: 8928)
 ///   -l LEVEL      Set log level: none, error, warn, info (default), debug, verbose
 ///   -v            Verbose logging (same as -l verbose)
 ///   -q            Quiet logging (same as -l error)
@@ -62,6 +63,7 @@ using namespace sendspin;
 
 static const uint16_t SENDSPIN_PORT = 8928;
 static const char* SENDSPIN_PATH = "/sendspin";
+static uint16_t server_port = SENDSPIN_PORT;
 
 // Tracks total audio bytes received (used when PortAudio is unavailable)
 static size_t null_audio_total_bytes = 0;
@@ -130,6 +132,7 @@ static void print_usage(const char* prog) {
     fprintf(stderr, "  name          Friendly name (default: \"Basic Client\")\n\n");
     fprintf(stderr, "Options:\n");
     fprintf(stderr, "  -u URL        Connect to a WebSocket URL (e.g. ws://192.168.1.10:8928/sendspin)\n");
+    fprintf(stderr, "  -p PORT       Port for the local WebSocket server (default: 8928)\n");
     fprintf(stderr, "  -l LEVEL      Log level: none, error, warn, info (default), debug, verbose\n");
     fprintf(stderr, "  -v            Verbose logging (same as -l verbose)\n");
     fprintf(stderr, "  -q            Quiet logging (same as -l error)\n");
@@ -176,6 +179,11 @@ struct OutboundReconnect {
         if (client.is_connected()) {
             this->was_connected = true;
             this->delay_s = 1;
+            // Clear any pending retry schedule from earlier failed attempts (the superseded
+            // library patch erased its reconnect entry on promotion). Without this, a drop
+            // right after a recovery would wait out the stale backoff instead of retrying
+            // immediately.
+            this->next_attempt = std::chrono::steady_clock::now();
             return;
         }
         if (!this->was_connected || std::chrono::steady_clock::now() < this->next_attempt) {
@@ -205,13 +213,18 @@ int main(int argc, char* argv[]) {
     std::string alsa_mixer_spec;
     std::string config_file;
     int idle_timeout_s = 0;
+    int server_port_arg = -1;
     int liveness_timeout_s = -1;  // -1 = library default (derived from burst settings, 60 s)
     bool reconnect_on_loss = true;  // Reconnect an outbound (-u) connection after liveness loss
+    int enable_mdns_cli = -1;  // -1 = unset; config file or default decides
     int opt;
-    while ((opt = getopt(argc, argv, "u:l:vqhd:m:Lc:t:")) != -1) {
+    while ((opt = getopt(argc, argv, "u:p:l:vqhd:m:Lc:t:")) != -1) {
         switch (opt) {
             case 'u':
                 connect_url = optarg;
+                break;
+            case 'p':
+                server_port_arg = std::atoi(optarg);
                 break;
             case 'l':
                 if (!parse_log_level(optarg, log_level)) {
@@ -288,6 +301,18 @@ int main(int argc, char* argv[]) {
             if (config_parser.has_key("RECONNECT_ON_LOSS")) {
                 reconnect_on_loss = config_parser.get_bool("RECONNECT_ON_LOSS", true);
             }
+
+            if (server_port_arg == -1 && config_parser.has_key("SERVER_PORT")) {
+                server_port_arg = config_parser.get_int("SERVER_PORT", SENDSPIN_PORT);
+            }
+
+            if (enable_mdns_cli == -1 && config_parser.has_key("ENABLE_MDNS")) {
+                enable_mdns_cli = config_parser.get_bool("ENABLE_MDNS", true) ? 1 : 0;
+            }
+
+            if (config_parser.has_key("RECONNECT_ON_LOSS")) {
+                reconnect_on_loss = config_parser.get_bool("RECONNECT_ON_LOSS", true);
+            }
             
             // Set log level from config if not specified on command line
             if (optind == 1) {  // No command-line options were specified
@@ -326,6 +351,8 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  Idle Timeout  : %s\n", idle_timeout_s == 0 ? "inaktiv" : (std::to_string(idle_timeout_s) + " seconds").c_str());
     fprintf(stderr, "  Liveness      : %s\n", liveness_timeout_s < 0 ? "default (60 s)" : (liveness_timeout_s == 0 ? "disabled" : (std::to_string(liveness_timeout_s) + " seconds").c_str()));
     fprintf(stderr, "  Reconnect     : %s\n", reconnect_on_loss ? "on" : "off");
+    fprintf(stderr, "  Server Port   : %u\n", server_port);
+    fprintf(stderr, "  mDNS          : %s\n", enable_mdns_cli == 0 ? "off" : "on");
     const char* log_level_str = "info";
     switch (log_level) {
         case LogLevel::NONE: log_level_str = "none"; break;
@@ -372,6 +399,10 @@ int main(int argc, char* argv[]) {
         config.liveness_timeout_ms = static_cast<int64_t>(liveness_timeout_s) * 1000;
     }
 
+    if (server_port_arg > 0) {
+        server_port = static_cast<uint16_t>(server_port_arg);
+    }
+
     // Create audio output and client
 #ifdef SENDSPIN_HAS_PORTAUDIO
     PortAudioSink audio_sink;
@@ -392,27 +423,28 @@ int main(int argc, char* argv[]) {
 
     // Add roles
     PlayerRoleConfig player_config;
-    
+
+#ifdef SENDSPIN_HAS_PORTAUDIO
     // Dynamically determine supported audio formats based on device capabilities
     int device_to_check = audio_device_index >= 0 ? audio_device_index : Pa_GetDefaultOutputDevice();
-    
+
     fprintf(stderr, "Checking supported formats for device %d...\n", device_to_check);
-    
+
     // Test common sample rates
     std::vector<uint32_t> sample_rates = {44100, 48000, 96000, 192000};
     std::vector<uint8_t> bit_depths = {16, 24, 32};
-    
+
     for (uint32_t sample_rate : sample_rates) {
         for (uint8_t bit_depth : bit_depths) {
             if (PortAudioSink::is_format_supported(device_to_check, sample_rate, 2, bit_depth)) {
                 fprintf(stderr, "  Device supports: %uHz 2ch %ubit\n", sample_rate, bit_depth);
-                
+
                 // Add FLAC format if supported
                 player_config.audio_formats.push_back({SendspinCodecFormat::FLAC, 2, sample_rate, bit_depth});
-                
+
                 // Add PCM format if supported
                 player_config.audio_formats.push_back({SendspinCodecFormat::PCM, 2, sample_rate, bit_depth});
-                
+
                 // Add OPUS format for common sample rates (OPUS typically uses 48kHz)
                 if (sample_rate == 48000) {
                     player_config.audio_formats.push_back({SendspinCodecFormat::OPUS, 2, sample_rate, 16});
@@ -420,7 +452,8 @@ int main(int argc, char* argv[]) {
             }
         }
     }
-    
+#endif
+
     if (player_config.audio_formats.empty()) {
         fprintf(stderr, "Warning: No supported formats found for device %d, using defaults\n", device_to_check);
         player_config.audio_formats = {
@@ -549,7 +582,7 @@ int main(int argc, char* argv[]) {
     client.set_network_provider(&network_provider);
 
     // Start the server
-    fprintf(stderr, "Starting Sendspin basic client on port %u...\n", SENDSPIN_PORT);
+    fprintf(stderr, "Starting Sendspin basic client on port %u...\n", server_port);
 
     if (!client.start()) {
         fprintf(stderr, "Failed to start server\n");
@@ -558,10 +591,14 @@ int main(int argc, char* argv[]) {
 
     // Advertise via mDNS
     MdnsAdvertiser mdns;
-    if (!mdns.start(friendly_name, SENDSPIN_PORT, SENDSPIN_PATH)) {
-        fprintf(stderr, "Warning: mDNS advertisement failed, server still running\n");
-        fprintf(stderr, "Connect manually to ws://<this-host>:%u%s\n", SENDSPIN_PORT,
-                SENDSPIN_PATH);
+    bool mdns_started = false;
+    if (enable_mdns_cli != 0) {
+        mdns_started = mdns.start(friendly_name, server_port, SENDSPIN_PATH);
+        if (!mdns_started) {
+            fprintf(stderr, "Warning: mDNS advertisement failed, server still running\n");
+            fprintf(stderr, "Connect manually to ws://<this-host>:%u%s\n", server_port,
+                    SENDSPIN_PATH);
+        }
     }
 
     // Auto-connect if a URL was provided via -u
@@ -616,7 +653,9 @@ int main(int argc, char* argv[]) {
     }
 
     fprintf(stderr, "\nShutting down...\n");
-    mdns.stop();
+    if (mdns_started) {
+        mdns.stop();
+    }
     client.stop();
 
 #ifndef SENDSPIN_HAS_PORTAUDIO
