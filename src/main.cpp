@@ -310,10 +310,6 @@ int main(int argc, char* argv[]) {
                 enable_mdns_cli = config_parser.get_bool("ENABLE_MDNS", true) ? 1 : 0;
             }
 
-            if (config_parser.has_key("RECONNECT_ON_LOSS")) {
-                reconnect_on_loss = config_parser.get_bool("RECONNECT_ON_LOSS", true);
-            }
-            
             // Set log level from config if not specified on command line
             if (optind == 1) {  // No command-line options were specified
                 std::string log_level_str = config_parser.get_string("LOG_LEVEL", "info");
