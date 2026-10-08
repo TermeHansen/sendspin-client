@@ -206,7 +206,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [raspian:trixie, raspian:bullseye]
+        os: [raspian:trixie]
 
     steps:
       - name: Set up Docker Buildx

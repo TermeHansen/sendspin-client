@@ -1,215 +1,120 @@
-# GitHub Actions Workflow for Debian Package
+# CI workflows
 
-This directory contains the GitHub Actions workflow for automatically building Debian packages.
+Two workflows build and test the client:
 
-## 🚀 Workflow: `build-debian-package.yml`
+| File | Purpose | Trigger |
+|---|---|---|
+| `build-multi-debian.yml` | Build `.deb` packages for every architecture and publish a release | `release: published`, or manual dispatch |
+| `tests.yml` | Build and run the reconnect integration test | push to `main`, PR to `main` |
+
+The self-hosted ARM runner these workflows depend on is configured separately
+in `../runner/` (Docker Compose). See that README for setup.
+
+## `build-multi-debian.yml`
 
 ### Triggers
 
-The workflow runs on:
-- **Pushes to main branch** (excluding documentation changes)
-- **Pull requests to main branch**
-- **Published releases** (creates GitHub release with package)
+- **`release: published`** - builds every architecture and attaches the
+  non-dbgsym packages to the release.
+- **`workflow_dispatch`** - manual run with an `arch` input:
+  `all` (default), `amd64`, `armhf`, `arm64` or `armv6`. Selecting one arch
+  runs only the jobs that produce it; the release step is skipped unless the
+  event is a release.
 
-### Build Process
+### Jobs
 
-1. **Checkout** - Gets the code with submodules
-2. **Install Dependencies** - Sets up build environment
-3. **Apply Patch** - Applies the disable-examples patch
-4. **Configure CMake** - Sets up the build with optimizations
-5. **Build Project** - Compiles the SendSpin client
-6. **Create Package** - Generates .deb file using CPack
-7. **Lint Package** - Runs lintian for quality checks
-8. **Upload Artifact** - Makes package available for download
-9. **Create Release** - Publishes package on GitHub releases (for tags)
-
-### Output
-
-- **Debian Package**: `sendspin-client_0.1.0-1_amd64.deb`
-- **Artifact**: Available for 7 days after build
-- **Release**: Automatically created when pushing tags
-
-## 📋 Usage
-
-### Building on Every Push
-
-Just push to the `main` branch:
-```bash
-git push origin main
+```
+build-amd64  (ubuntu-latest)              ─┐
+build-arm    (self-hosted, ARM64)          ├─→ upload-all (self-hosted, ARM64)
+build-armv6  (self-hosted, X64)           ─┘
 ```
 
-The workflow will automatically:
-- Build the Debian package
-- Upload it as a build artifact
-- Show package contents in the logs
+**`build-amd64`** - GitHub-hosted. Matrix over `debian:trixie`,
+`ubuntu:24.04`, `ubuntu:26.04`, each as a job-level `container:`. Runs
+`dpkg-buildpackage -us -uc -b`, renames the `.deb` with a `_<distro>` suffix,
+and uploads it as artifact `amd64-<distro>` (retention: 1 day).
 
-### Creating a Release
+**`build-arm`** - the self-hosted arm64 runner. Matrix over `debian:trixie`,
+`ubuntu:26.04`, and `arch` from the input.
 
-1. **Tag your commit**:
-   ```bash
-   git tag -a v0.1.0 -m "Release v0.1.0"
-   git push origin v0.1.0
-   ```
+The runner is an arm64 container, and GitHub requires a job's `container:`
+image to match the runner architecture, so there is no job-level `container:`.
+Each leg starts its own container with `docker run --platform`:
 
-2. **Workflow will**:
-   - Build the package
-   - Create a GitHub Release
-   - Attach the .deb file to the release
-   - Generate release notes automatically
+- `armhf` → `linux/arm/v7` on `arm32v7/<distro>`
+- `arm64` → `linux/arm64` on `<distro>`
 
-### Downloading Artifacts
+Both run natively (arm64 on the 64-bit kernel, armhf via kernel
+`CONFIG_COMPAT`); no QEMU. Packages are written to `PARENT_DIR/upload` on the
+runner host rather than uploaded as an artifact, because `upload-all` runs on
+the same host.
 
-After any build:
-1. Go to **Actions** tab in GitHub
-2. Click on the latest workflow run
-3. Download the `debian-package` artifact
+**`build-armv6`** - the self-hosted x86_64 runner. Matrix over
+`raspian:trixie`. Sets up QEMU, then runs `dpkg-buildpackage` inside
+`vascoguita/raspios:armhf-trixie` with `--platform linux/arm/v6`, renames the
+package `armhf` → `armv6`, and uploads artifact `armv6-<distro>`.
 
-## 🔧 Customization
+**`upload-all`** - needs all three build jobs. Downloads the `amd64-*` and
+`armv6-*` artifacts, merges them with the arm packages already on the runner
+host, and on a release publishes everything except `*dbgsym*` via
+`softprops/action-gh-release`.
 
-### Change Package Version
+### Environment
 
-Edit in multiple places:
-1. **CMakeLists.txt**: `CPACK_DEBIAN_PACKAGE_VERSION`
-2. **Workflow file**: `DEB_VERSION` environment variable
-3. **debian/changelog**: First line
+- `DEB_PACKAGE_NAME=sendspin-client`
+- `DEB_BUILD_OPTIONS=noddebs nocheck` - skips debug packages and the CTest run
+  during packaging, since `tests.yml` covers testing.
 
-### Change Architecture
+### Runner requirements
 
-Modify in `CMakeLists.txt`:
-```cmake
-set(CPACK_DEBIAN_PACKAGE_ARCHITECTURE "arm64")  # For Raspberry Pi
-```
+The actions (`checkout@v7`, `download-artifact@v8`, `upload-artifact@v7`,
+`action-gh-release@v3`, `setup-{qemu,buildx}-action@v4`) use the Node 24
+runtime, which requires Actions Runner **>= 2.327.1**. The compose service
+tracks `ghcr.io/actions/actions-runner:latest`; if a job fails with a minimum
+runner version error, pull and recreate the container.
 
-### Add Dependencies
+Runner labels used:
 
-Update in `CMakeLists.txt`:
-```cmake
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "libportaudio2, libasound2, avahi-daemon, pulseaudio")
-```
+- `[self-hosted, Linux, ARM64]` - `build-arm`, `upload-all`
+- `[self-hosted, Linux, X64]` - `build-armv6`
 
-## 📦 Package Information
+## `tests.yml`
 
-### Package Contents
+Runs on GitHub-hosted `ubuntu-24.04` and `ubuntu-22.04`. Installs the build
+dependencies, configures with `-DBUILD_TESTING=ON`, builds, and runs
+`ctest --test-dir build --output-on-failure`. The suite is
+`tests/reconnect_test.py`, which drives the real binary against a WebSocket
+stub.
 
-The generated package includes:
-- `/usr/bin/sendspin-client` - Main executable
-- Systemd service file
-- Configuration file template
-- Documentation
+## Building a release
 
-### Dependencies
+1. Bump `VERSION`.
+2. Add a matching entry at the top of `debian/changelog` (debhelper date
+   format, maintainer `TermeHansen <terme@hansen>`).
+3. Publish a GitHub release - the workflow builds all architectures and
+   attaches the packages.
 
-Runtime dependencies (automatically installed):
-- `libportaudio2` - Audio I/O
-- `libasound2` - ALSA support
-- `avahi-daemon` - mDNS/zeroconf
+Or run the workflow manually with `arch: all` to produce packages without
+creating a release.
 
-Build dependencies (for building from source):
-- `build-essential`
-- `debhelper`
-- `cmake`
-- `portaudio19-dev`
-- `libavahi-compat-libdnssd-dev`
+## Troubleshooting
 
-## 🎯 Best Practices
+- **`no matching manifest`** on the arm jobs - the `--platform` value does not
+  match an image that publishes that architecture. `arm64` legs need
+  `linux/arm64`, `armhf` legs need `linux/arm/v7` with the `arm32v7/` image.
+- **Job queued forever** - no online runner carries the required labels. Check
+  the runner is registered and idle in the repository's Settings → Actions →
+  Runners.
+- **`requires a minimum Actions Runner version`** - update the runner image
+  (`docker compose pull && docker compose up -d` in `../runner/`).
+- **`download-artifact` fails on hash mismatch** - `@v8` errors by default on
+  a digest mismatch rather than warning. Re-run; if it persists, pin
+  `download-artifact` to `v7`.
+- **Release step skipped** - expected unless the run was triggered by a
+  published release.
 
-### Version Tagging
+## References
 
-Use semantic versioning:
-```bash
-# For releases
-git tag v1.0.0
-git tag v1.1.0
-git tag v2.0.0
-
-# For pre-releases
-git tag v1.0.0-rc1
-git tag v1.0.0-beta
-```
-
-### Branch Protection
-
-Recommended branch protection rules:
-- Require pull request reviews
-- Require status checks to pass
-- Include Administrators
-
-### Workflow Optimization
-
-The workflow:
-- **Ignores documentation changes** to avoid unnecessary builds
-- **Uses Ubuntu 20.04** (compatible with Debian Bullseye)
-- **Parallel builds** with `-j$(nproc)` for faster compilation
-- **Continues on lintian warnings** (doesn't fail build)
-
-## 🐛 Troubleshooting
-
-### Workflow Fails on Dependencies
-
-Check the error message and install missing dependencies in the workflow file.
-
-### Package Not Generated
-
-Ensure:
-- CPack is properly configured in CMakeLists.txt
-- `include(CPack)` is present
-- CMake configuration succeeds
-
-### Release Not Created
-
-Verify:
-- You pushed a tag (not just a branch)
-- Tag format is correct (e.g., `v1.0.0`)
-- GitHub token has proper permissions
-
-## 📈 Monitoring
-
-### Workflow Status Badge
-
-Add this to your README.md:
-```markdown
-![Build Status](https://github.com/TermeHansen/sendspin-client/actions/workflows/build-debian-package.yml/badge.svg)
-```
-
-### Viewing Logs
-
-1. Go to **Actions** tab
-2. Click on the workflow run
-3. Expand each step to see detailed logs
-
-## 🔄 CI/CD Integration
-
-### Automatic Deployment
-
-Extend the workflow to deploy to:
-- **PPA** (Personal Package Archive)
-- **PackageCloud**
-- **Your own APT repository**
-
-### Multiple Architectures
-
-Add matrix build for arm64 (Raspberry Pi):
-```yaml
-strategy:
-  matrix:
-    arch: [amd64, arm64]
-```
-
-## 📚 References
-
-- [GitHub Actions Documentation](https://docs.github.com/en/actions)
-- [CPack Documentation](https://cmake.org/cmake/help/latest/module/CPack.html)
-- [Debian Packaging Guide](https://www.debian.org/doc/manuals/packaging-manual/packaging-manual.html)
-
-## 🎉 Workflow Features
-
-✅ **Automatic builds** on every push
-✅ **Release management** with GitHub Releases
-✅ **Artifact storage** for manual downloads
-✅ **Lintian checks** for package quality
-✅ **Parallel builds** for speed
-✅ **Submodule support** for sendspin-cpp
-✅ **Patch management** for clean builds
-✅ **Multi-architecture ready** (can be extended)
-
-This workflow provides a complete CI/CD pipeline for building and distributing your SendSpin client as a professional Debian package!
+- [GitHub Actions documentation](https://docs.github.com/en/actions)
+- [Debian packaging guide](https://www.debian.org/doc/manuals/packaging-manual/)
+- [Runner configuration](../runner/README.md)

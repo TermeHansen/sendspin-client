@@ -1,0 +1,2 @@
+# Compose secrets/state for the self-hosted runner. Never commit .env.
+.env

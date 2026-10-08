@@ -1,0 +1,64 @@
+# Self-hosted GitHub Actions runner for sendspin-client, arm64.
+#
+# OSMC on the Pi boots a 64-bit kernel with a 32-bit userland. The aarch64
+# runner binary cannot run directly on the host (no arm64 libstdc++/glibc),
+# but it runs natively inside this 64-bit container: the image carries its own
+# userland and the kernel is already aarch64.
+#
+# The workflows shell out to the host Docker daemon (nested `docker run` for
+# the package builds), so the Docker socket is mounted and the work directory
+# is bound at an identical host/container path - the nested
+# `-v $GITHUB_WORKSPACE:...` mounts are resolved by the host daemon.
+#
+# Register/run:
+#   cp .env.example .env    # set RUNNER_TOKEN (single-use, expires ~1h)
+#   docker compose up -d
+#   docker compose logs -f
+#
+# Re-registering (only needed after `docker compose down`, which discards the
+# container's registration state - restart/reboot preserve it):
+#   docker compose up -d --force-recreate   # with a fresh RUNNER_TOKEN
+
+services:
+  runner:
+    image: ghcr.io/actions/actions-runner:latest
+    platform: linux/arm64
+    container_name: sendspin-runner-arm64
+    restart: unless-stopped
+    # Run as root: the image's default user is not in the host's docker group
+    # and the bind-mounted work dir is root-owned. This requires
+    # RUNNER_ALLOW_RUNASROOT below, otherwise config.sh/run.sh abort with
+    # "Must not run with sudo". This is a dedicated build host and the
+    # workflows already run their builds as 0:0, so root-owned artifacts are
+    # expected. See README for the non-root alternative.
+    user: "0:0"
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -e
+        mkdir -p "$RUNNER_WORKDIR"
+        if [ ! -f .runner ]; then
+          ./config.sh --unattended --replace \
+            --url "$RUNNER_REPO_URL" \
+            --token "$RUNNER_TOKEN" \
+            --name "$RUNNER_NAME" \
+            --labels "$RUNNER_LABELS" \
+            --work "$RUNNER_WORKDIR"
+        else
+          echo "Runner already registered; skipping config.sh."
+        fi
+        exec ./run.sh
+    environment:
+      # Without this the runner aborts with "Must not run with sudo" (uid 0)
+      # and the container restart-loops.
+      RUNNER_ALLOW_RUNASROOT: "1"
+      RUNNER_REPO_URL: ${RUNNER_REPO_URL}
+      RUNNER_TOKEN: ${RUNNER_TOKEN}
+      RUNNER_NAME: ${RUNNER_NAME:-osmc-arm64}
+      RUNNER_LABELS: ${RUNNER_LABELS:-self-hosted,Linux,ARM64}
+      RUNNER_WORKDIR: ${RUNNER_WORKDIR:-/srv/sendspin-runner/_work}
+    volumes:
+      # Identical host and container path is required: workflow steps launch
+      # `docker run -v $GITHUB_WORKSPACE:...`, which the host daemon resolves.
+      - ${RUNNER_WORKDIR:-/srv/sendspin-runner/_work}:${RUNNER_WORKDIR:-/srv/sendspin-runner/_work}
+      - /var/run/docker.sock:/var/run/docker.sock
