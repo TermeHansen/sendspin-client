@@ -25,6 +25,7 @@ ANOTHER_KEY = "quoted value"
 | `LOG_LEVEL` | string | "info" | Log level: none, error, warn, info, debug, verbose |
 | `CONNECT_URL` | string | "" (empty) | WebSocket URL to connect to (leave empty to listen) |
 | `ENABLE_MDNS` | boolean | true | Enable mDNS service advertisement |
+| `UNPAIRED_ACCESS` | boolean | false | Admit servers that have not paired. sendspin-cpp v0.9 encrypts every connection (Noise) and requires a server to pair before it may play; set true to allow unpaired servers to play (the `-a` flag). |
 
 ### Example Configuration
 
@@ -48,6 +49,11 @@ LOG_LEVEL = "info"
 
 # Enable mDNS advertisement
 ENABLE_MDNS = true
+
+# Allow servers that have not paired to play (default: false).
+# With the v0.9 Noise protocol a server must pair before it may play;
+# set true to admit unpaired servers (same as the -a flag).
+UNPAIRED_ACCESS = false
 
 # Release the audio hardware so other apps can use it when stopped for 60s
 IDLE_TIMEOUT = 60

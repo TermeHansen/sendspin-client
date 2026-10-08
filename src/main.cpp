@@ -32,6 +32,7 @@
 ///   -m MIXER      Use ALSA hardware mixer for volume control (format: card:control, e.g., "1:Digital")
 ///   -c FILE       Use configuration file (default: /etc/sendspin-client/sendspin-client.conf)
 ///   -t SECONDS    Idle timeout in seconds before releasing audio device (0 = disable, default)
+///   -a            Allow unpaired servers to play (default: off; they must pair first)
 ///   -h            Show usage
 
 #include "sendspin/client.h"
@@ -50,13 +51,18 @@
 #include <algorithm>
 #include <atomic>
 #include "config_parser.h"
+#include <cerrno>
 #include <chrono>
 #include <csignal>
 #include <cstdio>
 #include <cstring>
+#include <fstream>
+#include <optional>
 #include <string>
+#include <sys/stat.h>
 #include <unistd.h>  // for access()
 #include <thread>
+#include <vector>
 #include "utils.h"
 
 using namespace sendspin;
@@ -121,6 +127,82 @@ private:
     DNSServiceRef service_ref_{nullptr};
 };
 
+// File-backed SendspinPersistenceProvider.
+//
+// sendspin-cpp v0.9.0 derives the client identity from a static X25519 keypair and stores
+// pairing records through an opaque byte store: load_blob()/save_blob()/commit() keyed by the
+// fixed keys in sendspin/persistence_keys.h. The library owns all serialization; this provider
+// only stores bytes, one file per key. Without it the keypair is regenerated every boot, so
+// pairing and server preference would not survive a restart.
+//
+// Every call arrives on the main loop thread, so no locking is needed here.
+class HostPersistenceProvider : public SendspinPersistenceProvider {
+public:
+    explicit HostPersistenceProvider(std::string dir) : dir_(std::move(dir)) {}
+
+    std::optional<std::vector<uint8_t>> load_blob(const std::string& key) override {
+        std::ifstream in(path_for(key), std::ios::binary);
+        if (!in) {
+            return std::nullopt;
+        }
+        std::vector<uint8_t> bytes((std::istreambuf_iterator<char>(in)),
+                                   std::istreambuf_iterator<char>());
+        if (!in.good() && !in.eof()) {
+            return std::nullopt;
+        }
+        return bytes;
+    }
+
+    bool save_blob(const std::string& key, const uint8_t* data, size_t len) override {
+        // Keys are library-owned identifiers ([a-z0-9_]); reject anything path-like defensively.
+        if (key.empty() || key.find('/') != std::string::npos || key.find("..") != std::string::npos) {
+            return false;
+        }
+        if (!ensure_dir()) {
+            return false;
+        }
+        const std::string final_path = path_for(key);
+        const std::string tmp_path = final_path + ".tmp";
+        {
+            // Write to a temp file and rename, so a crash mid-write cannot leave a truncated
+            // record (a half-written KEYPAIR or record slot would corrupt the stored identity).
+            std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
+            if (!out) {
+                return false;
+            }
+            out.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(len));
+            out.flush();
+            if (!out.good()) {
+                out.close();
+                ::unlink(tmp_path.c_str());
+                return false;
+            }
+        }
+        if (::rename(tmp_path.c_str(), final_path.c_str()) != 0) {
+            ::unlink(tmp_path.c_str());
+            return false;
+        }
+        return true;
+    }
+
+    // Writes are durable when save_blob() returns, so nothing is pending here.
+    bool commit() override { return true; }
+
+    const std::string& dir() const { return dir_; }
+
+private:
+    std::string path_for(const std::string& key) const { return dir_ + "/" + key; }
+
+    bool ensure_dir() {
+        if (::mkdir(dir_.c_str(), 0700) == 0) {
+            return true;
+        }
+        return errno == EEXIST;
+    }
+
+    std::string dir_;
+};
+
 static std::atomic<bool> running{true};
 
 static void signal_handler(int /*sig*/) {
@@ -141,6 +223,7 @@ static void print_usage(const char* prog) {
     fprintf(stderr, "  -m MIXER      Use ALSA hardware mixer for volume control (format: card:control, e.g., \"1:Digital\")\n");
     fprintf(stderr, "  -c FILE       Use configuration file (default: /etc/sendspin-client/sendspin-client.conf)\n");
     fprintf(stderr, "  -t SECONDS    Idle timeout in seconds before releasing audio device (0 = disable, default)\n");
+    fprintf(stderr, "  -a            Allow unpaired servers to play (default: off; they must pair first)\n");
     fprintf(stderr, "  -h            Show this help\n");
 }
 
@@ -217,8 +300,9 @@ int main(int argc, char* argv[]) {
     int liveness_timeout_s = -1;  // -1 = library default (derived from burst settings, 60 s)
     bool reconnect_on_loss = true;  // Reconnect an outbound (-u) connection after liveness loss
     int enable_mdns_cli = -1;  // -1 = unset; config file or default decides
+    int unpaired_access_cli = -1;  // -1 = unset; config file or default (off) decides
     int opt;
-    while ((opt = getopt(argc, argv, "u:p:l:vqhd:m:Lc:t:")) != -1) {
+    while ((opt = getopt(argc, argv, "u:p:l:vqhd:m:Lc:t:a")) != -1) {
         switch (opt) {
             case 'u':
                 connect_url = optarg;
@@ -253,6 +337,9 @@ int main(int argc, char* argv[]) {
                 break;
             case 't':
                 idle_timeout_s = std::atoi(optarg);
+                break;
+            case 'a':
+                unpaired_access_cli = 1;
                 break;
             case 'h':
                 print_usage(argv[0]);
@@ -310,6 +397,10 @@ int main(int argc, char* argv[]) {
                 enable_mdns_cli = config_parser.get_bool("ENABLE_MDNS", true) ? 1 : 0;
             }
 
+            if (unpaired_access_cli == -1 && config_parser.has_key("UNPAIRED_ACCESS")) {
+                unpaired_access_cli = config_parser.get_bool("UNPAIRED_ACCESS", false) ? 1 : 0;
+            }
+
             // Set log level from config if not specified on command line
             if (optind == 1) {  // No command-line options were specified
                 std::string log_level_str = config_parser.get_string("LOG_LEVEL", "info");
@@ -332,6 +423,12 @@ int main(int argc, char* argv[]) {
         friendly_name = argv[optind];
     }
 
+    // Resolve the server port before the startup banner so the printed value matches what the
+    // client and the mDNS advertisement actually use.
+    if (server_port_arg > 0) {
+        server_port = static_cast<uint16_t>(server_port_arg);
+    }
+
     // --- STARTUP LOGGING BLOCK ---
     fprintf(stderr, "\n");
     fprintf(stderr, "=================================================================\n");
@@ -349,6 +446,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  Reconnect     : %s\n", reconnect_on_loss ? "on" : "off");
     fprintf(stderr, "  Server Port   : %u\n", server_port);
     fprintf(stderr, "  mDNS          : %s\n", enable_mdns_cli == 0 ? "off" : "on");
+    fprintf(stderr, "  Unpaired      : %s\n", unpaired_access_cli == 1 ? "allowed" : "off (pairing required)");
     const char* log_level_str = "info";
     switch (log_level) {
         case LogLevel::NONE: log_level_str = "none"; break;
@@ -377,26 +475,20 @@ int main(int argc, char* argv[]) {
     }
 #endif
 
-    // Generate unique client ID based on friendly name and hardware info
-    std::string client_id = generate_client_id(friendly_name);
-    fprintf(stderr, "Generated client ID: %s\n", client_id.c_str());
-
-    // Configure the client
+    // Configure the client. The client identity is no longer a configured string: sendspin-cpp
+    // v0.9.0 derives it from a static X25519 keypair (persisted below) and exposes it via
+    // client.client_id() once start() has run.
     SendspinClientConfig config;
-    config.client_id = client_id;
     config.name = friendly_name;
     config.product_name = "sendspin-client";
     config.manufacturer = "sendspin-cpp";
     config.software_version = PROJECT_VERSION;
+    config.server_port = server_port;
 
     if (liveness_timeout_s >= 0) {
         // Liveness watchdog: drop an established connection after this many seconds of inbound
         // silence (0 disables). The library default is derived from the burst settings (60 s).
         config.liveness_timeout_ms = static_cast<int64_t>(liveness_timeout_s) * 1000;
-    }
-
-    if (server_port_arg > 0) {
-        server_port = static_cast<uint16_t>(server_port_arg);
     }
 
     // Create audio output and client
@@ -571,11 +663,24 @@ int main(int argc, char* argv[]) {
     BasicMetadataListener metadata_listener;
     BasicClientListener client_listener;
     HostNetworkProvider network_provider;
+    // Persists the X25519 identity, Pairing PSK and pairing records across restarts. Set before
+    // start(), which loads (or generates) the identity and writes it through this provider.
+    // SENDSPIN_STATE_DIR overrides the path (useful for unprivileged/dev runs); the service user
+    // owns the default directory.
+    const char* state_dir_env = getenv("SENDSPIN_STATE_DIR");
+    HostPersistenceProvider persistence_provider(
+        state_dir_env != nullptr && state_dir_env[0] != '\0' ? state_dir_env : "/var/lib/sendspin-client");
 
     player.set_listener(&player_listener);
     metadata.set_listener(&metadata_listener);
     client.set_listener(&client_listener);
     client.set_network_provider(&network_provider);
+    client.set_persistence_provider(&persistence_provider);
+
+    // Unpaired access: with the v0.9 Noise protocol a server must pair before it may play,
+    // unless this is enabled. Off by default; restored before start() so the first client/hello
+    // already advertises it. The library never persists this setting itself.
+    client.set_unpaired_access_enabled(unpaired_access_cli == 1);
 
     // Start the server
     fprintf(stderr, "Starting Sendspin basic client on port %u...\n", server_port);
@@ -583,6 +688,15 @@ int main(int argc, char* argv[]) {
     if (!client.start()) {
         fprintf(stderr, "Failed to start server\n");
         return 1;
+    }
+
+    // The identity is derived from the persisted keypair and only readable after start().
+    fprintf(stderr, "Client ID: %s\n", client.client_id().c_str());
+    if (access(persistence_provider.dir().c_str(), R_OK) != 0) {
+        fprintf(stderr,
+                "Warning: identity could not be persisted to %s; it will change on restart and "
+                "requires pairing again\n",
+                persistence_provider.dir().c_str());
     }
 
     // Advertise via mDNS
