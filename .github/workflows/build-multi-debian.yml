@@ -27,7 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     if: ${{ github.event_name == 'release' || github.event.inputs.arch == 'all' || github.event.inputs.arch == 'amd64' }}
     env:
-      DEB_BUILD_OPTIONS: noddebs
+      DEB_BUILD_OPTIONS: noddebs nocheck
     strategy:
       matrix:
         os: [debian:trixie, ubuntu:24.04, ubuntu:26.04]
@@ -59,7 +59,7 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -96,41 +96,27 @@ jobs:
           path: ${{ env.PARENT_DIR }}/upload/*.deb
           retention-days: 1
 
-  # --- Job 2: Build armhf and arm64 natively on the RPi4 self-hosted runner ---
+  # --- Job 2: Build armhf and arm64 on the RPi4 self-hosted runner ---
+  # The runner (see .github/runner) is an arm64 container on a 64-bit kernel.
+  # GitHub requires a job's `container:` image to match the runner arch, so
+  # each arch is built with an explicit `docker run --platform` instead. The
+  # armhf leg runs natively through the kernel's COMPAT layer (no QEMU).
   build-arm:
     name: Build arm (${{ matrix.arch }})
-    runs-on: [self-hosted, Linux, ARM]
+    runs-on: [self-hosted, Linux, ARM64]
     if: ${{ github.event_name == 'release' || github.event.inputs.arch == 'all' || github.event.inputs.arch == 'armhf' || github.event.inputs.arch == 'arm64' }}
     env:
-      DEB_BUILD_OPTIONS: noddebs
+      DEB_BUILD_OPTIONS: noddebs nocheck
     strategy:
       fail-fast: false
       matrix:
         arch: ${{ (github.event_name == 'release' && fromJson('["armhf","arm64"]')) || (github.event.inputs.arch == 'all' && fromJson('["armhf","arm64"]')) || (github.event.inputs.arch == 'armhf' && fromJson('["armhf"]')) || (github.event.inputs.arch == 'arm64' && fromJson('["arm64"]')) || fromJson('[]') }}
         os: [debian:trixie, ubuntu:26.04]
-    container:
-      image: ${{ matrix.arch == 'armhf' && format('arm32v7/{0}', matrix.os) || matrix.os }}
 
     steps:
       - name: Set up environment
         run: |
           echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
-
-      - name: Install build dependencies
-        run: |
-          apt-get update && apt-get install -yq --no-install-recommends \
-            build-essential \
-            debhelper \
-            cmake \
-            git \
-            ca-certificates \
-            libportaudio2 \
-            portaudio19-dev \
-            libasound2-dev \
-            libavahi-compat-libdnssd-dev \
-            avahi-daemon
-        env:
-          DEBIAN_FRONTEND: noninteractive
 
       - name: Prepare debian directory
         run: |
@@ -140,36 +126,62 @@ jobs:
           fi
 
       - name: Checkout
-        uses: actions/checkout@v1
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
       - name: Build Debian package (${{ matrix.arch }})
         run: |
-          # Clean up old packages
-          rm -f ../${{ env.DEB_PACKAGE_NAME }}_*.deb
-          rm -f ../${{ env.DEB_PACKAGE_NAME }}-dbgsym_*.deb
+          # armhf builds run through the arm32v7 images. GitHub requires a
+          # job's `container:` image to match the runner arch, so each leg
+          # spins up its own container with --platform instead. Both run
+          # natively: arm64 on the 64-bit kernel, armhf via its COMPAT layer.
+          case "${{ matrix.arch }}" in
+            armhf) PLATFORM="linux/arm/v7"; IMAGE="arm32v7/${{ matrix.os }}" ;;
+            *)     PLATFORM="linux/arm64";   IMAGE="${{ matrix.os }}" ;;
+          esac
+          PARENT_DIR=$(dirname $GITHUB_WORKSPACE)
+          DIST_NAME=$(echo "${{ matrix.os }}" | sed 's/:/_/g')
+          echo "Building ${{ matrix.arch }} for ${PLATFORM} using ${IMAGE}"
 
-          # Set architecture-specific flags (rules only uses this for armv6)
-          export MATRIX_ARCH="${{ matrix.arch }}"
+          docker run --rm \
+            --platform ${PLATFORM} \
+            -v ${PARENT_DIR}:/parent \
+            -v ${GITHUB_WORKSPACE}:/workspace \
+            -w /workspace \
+            -u 0:0 \
+            -e DEB_PACKAGE_NAME=${{ env.DEB_PACKAGE_NAME }} \
+            -e DEB_BUILD_OPTIONS="noddebs nocheck" \
+            -e MATRIX_ARCH=${{ matrix.arch }} \
+            -e DIST_NAME=${DIST_NAME} \
+            ${IMAGE} \
+            bash -c '
+              set -e
+              export DEBIAN_FRONTEND=noninteractive
+              apt-get update && apt-get install -yq --no-install-recommends \
+                build-essential \
+                debhelper \
+                cmake \
+                git \
+                ca-certificates \
+                libportaudio2 \
+                portaudio19-dev \
+                libasound2-dev \
+                libavahi-compat-libdnssd-dev \
+                avahi-daemon
 
-          # Build
-          dpkg-buildpackage -us -uc -b
+              dpkg-buildpackage -us -uc -b
 
-          # Rename to include distribution
-          DIST_NAME="${{ matrix.os }}"
-          # Replace : with _ using sed for compatibility
-          DIST_NAME=$(echo "$DIST_NAME" | sed 's/:/_/g')
-          for deb in ../${{ env.DEB_PACKAGE_NAME }}*.deb; do
-            if [ -f "$deb" ]; then
-              new_name="$(echo "$deb" | sed "s/.deb$/_${DIST_NAME}.deb/")"
-              mv "$deb" "$new_name"
-            fi
-          done
+              # dpkg-buildpackage writes the .deb to the parent of /workspace
+              for deb in /*.deb; do
+                if [ -f "$deb" ]; then
+                  mv "$deb" "$(echo "$deb" | sed "s/\.deb$/_${DIST_NAME}.deb/")"
+                fi
+              done
 
-          # Copy to upload directory
-          mkdir -p ${{ env.PARENT_DIR }}/upload
-          cp ${{ env.PARENT_DIR }}/*.deb ${{ env.PARENT_DIR }}/upload/.
+              mkdir -p /parent/upload
+              cp /*.deb /parent/upload/.
+            '
 
       - name: Sanitize distribution name for artifact
         run: |
@@ -194,17 +206,17 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [raspian:trixie, raspian:bullseye]
+        os: [raspian:trixie]
 
     steps:
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -229,7 +241,7 @@ jobs:
             -w /workspace \
             -u 0:0 \
             -e DEB_PACKAGE_NAME=${{ env.DEB_PACKAGE_NAME }} \
-            -e DEB_BUILD_OPTIONS=noddebs \
+            -e DEB_BUILD_OPTIONS="noddebs nocheck" \
             -e MATRIX_OS=${{ matrix.os }} \
             ${IMAGE} \
             bash -c "
@@ -294,11 +306,13 @@ jobs:
           path: ${{ env.UPLOAD_DIR }}/*.deb
           retention-days: 1
 
-  # --- Job 4: Combine and release from the RPi4 self-hosted runner ---
+  # --- Job 4: Combine and release on the RPi4 self-hosted runner ---
+  # Runs on the same arm64 runner as build-arm, so the arm debs it produced are
+  # already in PARENT_DIR/upload on the same host.
   upload-all:
     name: Upload all packages
     needs: [build-amd64, build-arm, build-armv6]
-    runs-on: [self-hosted, Linux, ARM]
+    runs-on: [self-hosted, Linux, ARM64]
     permissions:
       contents: write
     steps:
@@ -307,14 +321,14 @@ jobs:
           echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
 
       - name: Download amd64 artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           pattern: amd64-*
           path: artifacts
           merge-multiple: true
 
       - name: Download armv6 artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           pattern: armv6-*
           path: artifacts
@@ -346,7 +360,7 @@ jobs:
 
       - name: Upload Release files
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: ${{ env.PARENT_DIR }}/release-upload/*.deb
           generate_release_notes: true

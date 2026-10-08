@@ -116,3 +116,15 @@ set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/TermeHansen/sendspin-clien
 
 # Include CPack module
 include(CPack)
+
+# Integration tests (opt-in: package and release builds stay untouched)
+include(CTest)
+if(BUILD_TESTING)
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(
+        NAME reconnect
+        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/reconnect_test.py
+                --client $<TARGET_FILE:sendspin-client>
+    )
+    set_tests_properties(reconnect PROPERTIES TIMEOUT 180)
+endif()
