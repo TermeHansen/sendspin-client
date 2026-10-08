@@ -16,6 +16,7 @@ sendspin-cpp/       Git submodule — the library; has its own CLAUDE.md
 debian/             debhelper packaging (control, rules, service, changelog)
 cmake/              armv6-toolchain.cmake for Raspberry Pi 1 cross builds
 .github/workflows/  build-multi-debian.yml — package build matrix
+.github/runner/     docker-compose.yml — arm64 self-hosted runner service
 CONFIGURATION.md    Config file keys and CLI flags (user-facing docs)
 ```
 
