@@ -59,7 +59,7 @@ jobs:
           DEBIAN_FRONTEND: noninteractive
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -126,7 +126,7 @@ jobs:
           fi
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -210,13 +210,13 @@ jobs:
 
     steps:
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
+        uses: docker/setup-buildx-action@v4
 
       - name: Set up QEMU
-        uses: docker/setup-qemu-action@v3
+        uses: docker/setup-qemu-action@v4
 
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
@@ -321,14 +321,14 @@ jobs:
           echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
 
       - name: Download amd64 artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           pattern: amd64-*
           path: artifacts
           merge-multiple: true
 
       - name: Download armv6 artifacts
-        uses: actions/download-artifact@v6
+        uses: actions/download-artifact@v8
         with:
           pattern: armv6-*
           path: artifacts
@@ -360,7 +360,7 @@ jobs:
 
       - name: Upload Release files
         if: github.event_name == 'release'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: ${{ env.PARENT_DIR }}/release-upload/*.deb
           generate_release_notes: true

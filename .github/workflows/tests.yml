@@ -16,7 +16,7 @@ jobs:
         os: [ubuntu-24.04, ubuntu-22.04]
     steps:
       - name: Checkout (with submodules)
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           submodules: recursive
 
