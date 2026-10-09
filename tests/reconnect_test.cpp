@@ -455,6 +455,44 @@ struct ClientLog {
 // Fake Sendspin server
 // ============================================================================
 
+/// A single accepted connection. The worker thread is the sole closer of `fd`: it calls
+/// close_once() as its last act, so no other thread ever closes a descriptor the worker may still
+/// be reading from (closing an fd another thread is blocked in recv() on is undefined, and the
+/// number can be reused underneath it). The test thread only ever aborts the connection, which
+/// shuts the socket down to wake the worker without touching the descriptor's lifetime.
+struct Conn {
+    const int fd;
+    bool closed{false};
+    std::mutex mu;
+
+    explicit Conn(int f) : fd(f) {}
+
+    /// Abruptly drop the connection from the test thread: queue a RST (SO_LINGER 0, applied by
+    /// the worker's eventual close) and shut the socket down, which unblocks the worker's blocking
+    /// recv()/send(). Serialised with close_once() so it can never touch a closed (and possibly
+    /// reused) descriptor; a no-op once the worker has closed.
+    void abort() {
+        std::lock_guard<std::mutex> lk(mu);
+        if (closed) {
+            return;
+        }
+        linger lg{1, 0};
+        ::setsockopt(fd, SOL_SOCKET, SO_LINGER, &lg, sizeof(lg));
+        ::shutdown(fd, SHUT_RDWR);
+    }
+
+    /// Close the descriptor. Called only by the worker that owns it; idempotent so a later abort()
+    /// is a no-op.
+    void close_once() {
+        std::lock_guard<std::mutex> lk(mu);
+        if (closed) {
+            return;
+        }
+        ::close(fd);
+        closed = true;
+    }
+};
+
 class FakeServer {
 public:
     explicit FakeServer(uint16_t port) : port_(port) { start_listener(); }
@@ -498,24 +536,37 @@ public:
 
     size_t handshake_count() { return handshakes_.load(); }
 
-    /// Drop every live socket abruptly (RST, no WebSocket close frame).
+    /// Drop every live connection abruptly (RST, no WebSocket close frame). The workers own the
+    /// descriptors; this only aborts them and lets each worker close its own socket.
     void kill_connections() {
-        std::vector<int> socks;
+        std::vector<std::shared_ptr<Conn>> conns;
         {
             std::lock_guard<std::mutex> lk(live_mu_);
-            socks.swap(live_);
+            conns.swap(live_);
         }
-        for (int fd : socks) {
-            linger lg{1, 0};
-            ::setsockopt(fd, SOL_SOCKET, SO_LINGER, &lg, sizeof(lg));
-            ::close(fd);
+        for (auto& c : conns) {
+            c->abort();
         }
     }
 
+    /// Stop accepting, drop live sockets and join every worker. Idempotent; called by the
+    /// destructor, so no worker can outlive this object or touch a closed-then-reused fd.
     void stop() {
         stopping_.store(true);
         stop_listener();
         kill_connections();
+        // The kill above unblocks any worker blocked in recv; join them before the members (and
+        // the process's fd table) are torn down.
+        std::vector<std::thread> workers;
+        {
+            std::lock_guard<std::mutex> lk(workers_mu_);
+            workers.swap(workers_);
+        }
+        for (auto& t : workers) {
+            if (t.joinable()) {
+                t.join();
+            }
+        }
     }
 
 private:
@@ -525,15 +576,21 @@ private:
             if (lfd < 0) {
                 return;
             }
-            const int conn = ::accept(lfd, nullptr, nullptr);
-            if (conn < 0) {
+            const int raw = ::accept(lfd, nullptr, nullptr);
+            if (raw < 0) {
                 if (stopping_.load()) {
                     return;
                 }
                 std::this_thread::sleep_for(std::chrono::milliseconds(20));
                 continue;
             }
-            std::thread([this, conn] { serve(conn); }).detach();
+            auto conn = std::make_shared<Conn>(raw);
+            {
+                std::lock_guard<std::mutex> lk(live_mu_);
+                live_.push_back(conn);
+            }
+            std::lock_guard<std::mutex> lk(workers_mu_);
+            workers_.emplace_back([this, conn] { serve(conn); });
         }
     }
 
@@ -577,8 +634,8 @@ private:
         return send_all(fd, reinterpret_cast<const uint8_t*>(resp.data()), resp.size());
     }
 
-    /// Encrypt a JSON control message and send it as a BINARY frame.
-    bool send_json(NoiseInitiator& n, const std::string& json) {
+    /// Encrypt a JSON control message and send it as a BINARY frame on `fd`.
+    bool send_json(int fd, NoiseInitiator& n, const std::string& json) {
         std::vector<uint8_t> pt;
         pt.push_back(MSG_TYPE_JSON_BODY);
         pt.insert(pt.end(), json.begin(), json.end());
@@ -586,13 +643,13 @@ private:
         if (ct.empty()) {
             return false;
         }
-        return ws_send(fd_, 0x2, ct.data(), ct.size());
+        return ws_send(fd, 0x2, ct.data(), ct.size());
     }
 
-    std::string server_hello() {
+    std::string server_hello(const std::vector<uint8_t>& server_id) {
         JsonDocument doc;
         doc["type"] = "server/hello";
-        doc["payload"]["server_id"] = b64url_encode(server_id_.data(), server_id_.size());
+        doc["payload"]["server_id"] = b64url_encode(server_id.data(), server_id.size());
         doc["payload"]["name"] = "Fake Server";
         doc["payload"]["version"] = 1;
         doc["payload"]["active_roles"].add("player");
@@ -631,12 +688,8 @@ private:
         return out;
     }
 
-    void serve(int fd) {
-        fd_ = fd;
-        {
-            std::lock_guard<std::mutex> lk(live_mu_);
-            live_.push_back(fd);
-        }
+    void serve(const std::shared_ptr<Conn>& conn) {
+        const int fd = conn->fd;
         NoiseInitiator noise;
         try {
             if (!ws_upgrade(fd)) {
@@ -662,14 +715,16 @@ private:
                 return;
             }
 
-            // Step 3: server/init (prologue is built from the exact bytes of both).
+            // Step 3: server/init (prologue is built from the exact bytes of both). server_id is
+            // this worker's own; it must not be shared, or a concurrent reconnect would read a
+            // changing key.
             if (!noise.generate_server_key()) {
                 return;
             }
-            server_id_ = noise.server_pub;
+            const std::vector<uint8_t>& server_id = noise.server_pub;
             JsonDocument sdoc;
             sdoc["type"] = "server/init";
-            sdoc["payload"]["server_id"] = b64url_encode(server_id_.data(), server_id_.size());
+            sdoc["payload"]["server_id"] = b64url_encode(server_id.data(), server_id.size());
             sdoc["payload"]["version"] = 1;
             sdoc["payload"]["suite"] = "25519_ChaChaPoly_SHA256";
             std::string server_init_text;
@@ -716,10 +771,13 @@ private:
             handshakes_.fetch_add(1);
 
             // Step 7: encrypted transport. Answer server/hello and client/time.
-            if (!send_json(noise, server_hello())) {
+            if (!send_json(fd, noise, server_hello(server_id))) {
                 return;
             }
 
+            // A blackholed (muted) connection just stops answering, so the client's inbound
+            // silence accrues until its liveness watchdog fires; keep reading so the socket never
+            // backs up, but drop every message instead of replying.
             while (!stopping_.load()) {
                 if (!ws_read_frame(fd, frame)) {
                     return;
@@ -736,7 +794,7 @@ private:
                     continue;
                 }
                 if (muted_.load()) {
-                    continue;  // blackhole: accrue inbound silence so the watchdog fires
+                    continue;
                 }
                 std::vector<uint8_t> pt = raw_decrypt(noise.recv_cs, frame.payload);
                 if (pt.empty()) {
@@ -752,26 +810,18 @@ private:
                 }
                 const std::string type = doc["type"] | "";
                 if (type == "client/time") {
-                    send_json(noise, server_time(doc));
+                    send_json(fd, noise, server_time(doc));
                 } else if (type == "client/hello") {
                     // server/hello is sent proactively after the split; the activate that
                     // follows client/hello is what makes the connection operational.
-                    send_json(noise, server_activate());
+                    send_json(fd, noise, server_activate());
                 }
             }
         } catch (...) {
             // Fall through to cleanup.
         }
-        {
-            std::lock_guard<std::mutex> lk(live_mu_);
-            for (auto it = live_.begin(); it != live_.end(); ++it) {
-                if (*it == fd) {
-                    live_.erase(it);
-                    break;
-                }
-            }
-        }
-        ::close(fd);
+        // Sole close of this connection's descriptor (see Conn).
+        conn->close_once();
     }
 
     uint16_t port_;
@@ -780,10 +830,10 @@ private:
     std::atomic<bool> muted_{false};
     std::atomic<size_t> handshakes_{0};
     std::thread accept_thread_;
+    std::mutex workers_mu_;
+    std::vector<std::thread> workers_;
     std::mutex live_mu_;
-    std::vector<int> live_;
-    std::vector<uint8_t> server_id_;
-    int fd_{-1};
+    std::vector<std::shared_ptr<Conn>> live_;
 };
 
 // ============================================================================

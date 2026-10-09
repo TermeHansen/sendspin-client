@@ -56,6 +56,7 @@
 #include <csignal>
 #include <cstdio>
 #include <cstring>
+#include <fcntl.h>
 #include <fstream>
 #include <optional>
 #include <string>
@@ -159,29 +160,50 @@ public:
             return false;
         }
         if (!ensure_dir()) {
+            this->note_failure();
             return false;
         }
         const std::string final_path = path_for(key);
         const std::string tmp_path = final_path + ".tmp";
         {
-            // Write to a temp file and rename, so a crash mid-write cannot leave a truncated
-            // record (a half-written KEYPAIR or record slot would corrupt the stored identity).
-            std::ofstream out(tmp_path, std::ios::binary | std::ios::trunc);
-            if (!out) {
+            // Write to a private temp file and rename, so a crash mid-write cannot leave a
+            // truncated record (a half-written KEYPAIR or record slot would corrupt the stored
+            // identity). The file holds the X25519 private key and pairing PSKs, so it is created
+            // 0600 regardless of the directory's permissions and the process umask; the rename
+            // preserves that mode.
+            const int fd = ::open(tmp_path.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+            if (fd < 0) {
+                this->note_failure();
                 return false;
             }
-            out.write(reinterpret_cast<const char*>(data), static_cast<std::streamsize>(len));
-            out.flush();
-            if (!out.good()) {
-                out.close();
+            size_t written = 0;
+            while (written < len) {
+                const ssize_t n = ::write(fd, data + written, len - written);
+                if (n < 0) {
+                    if (errno == EINTR) {
+                        continue;
+                    }
+                    break;
+                }
+                written += static_cast<size_t>(n);
+            }
+            // Flush the bytes to the platter before the rename publishes them: a power loss after
+            // a successful save must not lose the identity or a pairing record.
+            const bool ok = written == len && ::fsync(fd) == 0;
+            ::close(fd);
+            if (!ok) {
                 ::unlink(tmp_path.c_str());
+                this->note_failure();
                 return false;
             }
         }
         if (::rename(tmp_path.c_str(), final_path.c_str()) != 0) {
             ::unlink(tmp_path.c_str());
+            this->note_failure();
             return false;
         }
+        // The rename is visible in the directory only after the directory entry is durable.
+        this->sync_dir();
         return true;
     }
 
@@ -190,17 +212,39 @@ public:
 
     const std::string& dir() const { return dir_; }
 
+    /// @brief True if any save_blob() call has failed. The caller checks this after start() to
+    /// warn when the identity could not be persisted, rather than probing the directory with
+    /// access(), which cannot tell an unwritable directory from a failed write.
+    bool save_failed() const { return save_failed_; }
+
 private:
     std::string path_for(const std::string& key) const { return dir_ + "/" + key; }
+
+    void note_failure() { this->save_failed_ = true; }
+
+    void sync_dir() {
+        const int dfd = ::open(dir_.c_str(), O_RDONLY | O_DIRECTORY | O_CLOEXEC);
+        if (dfd >= 0) {
+            ::fsync(dfd);
+            ::close(dfd);
+        }
+    }
 
     bool ensure_dir() {
         if (::mkdir(dir_.c_str(), 0700) == 0) {
             return true;
         }
-        return errno == EEXIST;
+        if (errno != EEXIST) {
+            return false;
+        }
+        // An existing path is fine only if it really is a directory; a regular file or symlink
+        // there would make every path_for() write fail in a confusing way.
+        struct stat st{};
+        return ::stat(dir_.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
     }
 
     std::string dir_;
+    bool save_failed_{false};
 };
 
 static std::atomic<bool> running{true};
@@ -692,7 +736,7 @@ int main(int argc, char* argv[]) {
 
     // The identity is derived from the persisted keypair and only readable after start().
     fprintf(stderr, "Client ID: %s\n", client.client_id().c_str());
-    if (access(persistence_provider.dir().c_str(), R_OK) != 0) {
+    if (persistence_provider.save_failed()) {
         fprintf(stderr,
                 "Warning: identity could not be persisted to %s; it will change on restart and "
                 "requires pairing again\n",
