@@ -176,6 +176,14 @@ public:
                 this->note_failure();
                 return false;
             }
+            // open() ignores the mode when the file already exists (a stale .tmp left by a crash,
+            // or one planted in a shared directory), so force the mode on the descriptor we hold.
+            if (::fchmod(fd, 0600) != 0) {
+                ::close(fd);
+                ::unlink(tmp_path.c_str());
+                this->note_failure();
+                return false;
+            }
             size_t written = 0;
             while (written < len) {
                 const ssize_t n = ::write(fd, data + written, len - written);
