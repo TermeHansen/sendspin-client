@@ -120,11 +120,19 @@ include(CPack)
 # Integration tests (opt-in: package and release builds stay untouched)
 include(CTest)
 if(BUILD_TESTING)
-    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    # The fake server plays the Noise initiator over raw noise-c, so it needs the submodule's
+    # private headers (crypto/constants.h, platform/base64.h), its test helper, and the noise_c
+    # target. Both are provided by the sendspin-cpp build above.
+    add_executable(reconnect_test tests/reconnect_test.cpp)
+    target_include_directories(reconnect_test PRIVATE
+        ${CMAKE_CURRENT_SOURCE_DIR}/sendspin-cpp/src
+        ${CMAKE_CURRENT_SOURCE_DIR}/sendspin-cpp/tests
+    )
+    target_link_libraries(reconnect_test PRIVATE sendspin noise_c)
+
     add_test(
         NAME reconnect
-        COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tests/reconnect_test.py
-                --client $<TARGET_FILE:sendspin-client>
+        COMMAND reconnect_test $<TARGET_FILE:sendspin-client>
     )
     set_tests_properties(reconnect PROPERTIES TIMEOUT 180)
 endif()

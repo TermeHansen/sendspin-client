@@ -10,6 +10,11 @@ ExecStart=/usr/bin/sendspin-client "SendSpin Client Service"
 Restart=on-failure
 RestartSec=5s
 Environment="PULSE_CLIENT=sendspin-client"
+# Persisted client identity (X25519 keypair), Pairing PSK and pairing records.
+# Managed by systemd and owned by the service user; the client generates the
+# keypair on first start, so the same identity survives restarts.
+StateDirectory=sendspin-client
+StateDirectoryMode=0700
 
 # Audio device permissions are handled by user group membership
 # The preinst script adds sendspin user to: audio, pulse, pulse-access

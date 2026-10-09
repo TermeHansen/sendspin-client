@@ -91,8 +91,10 @@ CMake build (see `debian/README.md`).
   `src/main.cpp`).
 - C++20; Doxygen `///` comments for public APIs, matching the submodule
   style.
-- Tests: `tests/reconnect_test.py` drives the real binary against a
-  WebSocket stub and is registered with CTest. Run with
+- Tests: `tests/reconnect_test.cpp` drives the real binary against an
+  in-process fake Sendspin server that plays the Noise initiator (the
+  client is always the responder since sendspin-cpp v0.9) and is
+  registered with CTest. Run with
   `cmake -B build -DBUILD_TESTING=ON && ctest --test-dir build`. The
   submodule has its own unit tests under `sendspin-cpp/tests/`.
 - When adding or changing a config key, update all three places:

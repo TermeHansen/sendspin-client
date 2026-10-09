@@ -51,6 +51,12 @@
 # Default: true
 # ENABLE_MDNS = true
 
+# Allow servers that have not paired to play
+# With the v0.9 Noise protocol a server must pair before it may play; set
+# this to true to admit unpaired servers (same as the -a command-line flag).
+# Default: false
+# UNPAIRED_ACCESS = false
+
 # Reconnect to CONNECT_URL after the connection is dropped as dead
 # (see LIVENESS_TIMEOUT). Applies to outbound connections only; inbound
 # (discovery) connections are left to their server to reconnect.
