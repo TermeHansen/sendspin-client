@@ -83,8 +83,8 @@ Runner labels used:
 Runs on GitHub-hosted `ubuntu-24.04` and `ubuntu-22.04`. Installs the build
 dependencies, configures with `-DBUILD_TESTING=ON`, builds, and runs
 `ctest --test-dir build --output-on-failure`. The suite is
-`tests/reconnect_test.py`, which drives the real binary against a WebSocket
-stub.
+`tests/reconnect_test.cpp`, which drives the real binary against an
+in-process fake Sendspin server that plays the Noise initiator.
 
 ## Building a release
 
