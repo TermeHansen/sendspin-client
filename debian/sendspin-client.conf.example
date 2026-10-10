@@ -57,6 +57,13 @@
 # Default: false
 # UNPAIRED_ACCESS = false
 
+# Factory-style Pairing PSK, 64 hex characters (32 bytes). Optional: without
+# it the client generates one on first boot and prints the matching pairing
+# token at startup (and with the -T flag). Must be unique per device and
+# randomly generated, never reused across devices.
+# Default: unset
+# PAIRING_PSK_HEX = ""
+
 # Reconnect to CONNECT_URL after the connection is dropped as dead
 # (see LIVENESS_TIMEOUT). Applies to outbound connections only; inbound
 # (discovery) connections are left to their server to reconnect.

@@ -33,6 +33,7 @@
 ///   -c FILE       Use configuration file (default: /etc/sendspin-client/sendspin-client.conf)
 ///   -t SECONDS    Idle timeout in seconds before releasing audio device (0 = disable, default)
 ///   -a            Allow unpaired servers to play (default: off; they must pair first)
+///   -T            Print the pairing token and exit
 ///   -h            Show usage
 
 #include "sendspin/client.h"
@@ -49,6 +50,7 @@
 #include <arpa/inet.h>
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include "config_parser.h"
 #include <cerrno>
@@ -276,6 +278,7 @@ static void print_usage(const char* prog) {
     fprintf(stderr, "  -c FILE       Use configuration file (default: /etc/sendspin-client/sendspin-client.conf)\n");
     fprintf(stderr, "  -t SECONDS    Idle timeout in seconds before releasing audio device (0 = disable, default)\n");
     fprintf(stderr, "  -a            Allow unpaired servers to play (default: off; they must pair first)\n");
+    fprintf(stderr, "  -T            Print the pairing token and exit\n");
     fprintf(stderr, "  -h            Show this help\n");
 }
 
@@ -353,8 +356,10 @@ int main(int argc, char* argv[]) {
     bool reconnect_on_loss = true;  // Reconnect an outbound (-u) connection after liveness loss
     int enable_mdns_cli = -1;  // -1 = unset; config file or default decides
     int unpaired_access_cli = -1;  // -1 = unset; config file or default (off) decides
+    bool show_token = false;  // -T: print the pairing token and exit
+    std::string pairing_psk_hex;  // PAIRING_PSK_HEX: factory-style Pairing PSK (64 hex chars)
     int opt;
-    while ((opt = getopt(argc, argv, "u:p:l:vqhd:m:Lc:t:a")) != -1) {
+    while ((opt = getopt(argc, argv, "u:p:l:vqhd:m:Lc:t:aT")) != -1) {
         switch (opt) {
             case 'u':
                 connect_url = optarg;
@@ -392,6 +397,9 @@ int main(int argc, char* argv[]) {
                 break;
             case 'a':
                 unpaired_access_cli = 1;
+                break;
+            case 'T':
+                show_token = true;
                 break;
             case 'h':
                 print_usage(argv[0]);
@@ -451,6 +459,10 @@ int main(int argc, char* argv[]) {
 
             if (unpaired_access_cli == -1 && config_parser.has_key("UNPAIRED_ACCESS")) {
                 unpaired_access_cli = config_parser.get_bool("UNPAIRED_ACCESS", false) ? 1 : 0;
+            }
+
+            if (pairing_psk_hex.empty() && config_parser.has_key("PAIRING_PSK_HEX")) {
+                pairing_psk_hex = config_parser.get_string("PAIRING_PSK_HEX");
             }
 
             // Set log level from config if not specified on command line
@@ -541,6 +553,27 @@ int main(int argc, char* argv[]) {
         // Liveness watchdog: drop an established connection after this many seconds of inbound
         // silence (0 disables). The library default is derived from the burst settings (60 s).
         config.liveness_timeout_ms = static_cast<int64_t>(liveness_timeout_s) * 1000;
+    }
+
+    // Factory-style Pairing PSK from the config: a fixed provisioning key instead of the
+    // library-generated one. It must be per-device and CSPRNG-drawn (pairing.md "Pairing PSK
+    // Flow"); the library rejects an all-zero key or the published Sentinel PSK and refuses to
+    // start. A configured PSK outranks the stored one and is never written to persistence, so
+    // removing the key returns the client to the stored/generated PSK.
+    if (!pairing_psk_hex.empty()) {
+        if (pairing_psk_hex.size() != 64 ||
+            pairing_psk_hex.find_first_not_of("0123456789abcdefABCDEF") != std::string::npos) {
+            fprintf(stderr,
+                    "PAIRING_PSK_HEX must be exactly 64 hex characters (32 bytes), got %zu\n",
+                    pairing_psk_hex.size());
+            return 1;
+        }
+        std::array<uint8_t, 32> psk_bytes{};
+        for (size_t i = 0; i < psk_bytes.size(); ++i) {
+            psk_bytes[i] = static_cast<uint8_t>(std::stoul(pairing_psk_hex.substr(i * 2, 2),
+                                                            nullptr, 16));
+        }
+        config.pairing_psk = SendspinPsk(psk_bytes);
     }
 
     // Create audio output and client
@@ -744,11 +777,22 @@ int main(int argc, char* argv[]) {
 
     // The identity is derived from the persisted keypair and only readable after start().
     fprintf(stderr, "Client ID: %s\n", client.client_id().c_str());
+    // The pairing token carries the client identity and the Pairing PSK; a server operator
+    // enters it to pair with this client. Stable for the lifetime of the PSK.
+    if (auto token = client.pairing_token()) {
+        fprintf(stderr, "Pairing token: %s\n", token->c_str());
+    }
     if (persistence_provider.save_failed()) {
         fprintf(stderr,
                 "Warning: identity could not be persisted to %s; it will change on restart and "
                 "requires pairing again\n",
                 persistence_provider.dir().c_str());
+    }
+
+    // -T: the token is out; leave cleanly without opening sockets or advertising.
+    if (show_token) {
+        client.stop();
+        return 0;
     }
 
     // Advertise via mDNS

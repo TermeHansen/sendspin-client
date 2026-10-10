@@ -26,6 +26,7 @@ ANOTHER_KEY = "quoted value"
 | `CONNECT_URL` | string | "" (empty) | WebSocket URL to connect to (leave empty to listen) |
 | `ENABLE_MDNS` | boolean | true | Enable mDNS service advertisement |
 | `UNPAIRED_ACCESS` | boolean | false | Admit servers that have not paired. sendspin-cpp v0.9 encrypts every connection (Noise) and requires a server to pair before it may play; set true to allow unpaired servers to play (the `-a` flag). |
+| `PAIRING_PSK_HEX` | string | unset | Factory-style Pairing PSK as 64 hex characters (32 bytes). When set, it replaces the library-generated Pairing PSK on every start and is never written to the state directory; remove the key to return to the stored one. Must be drawn from a CSPRNG per device (an all-zero key or the published Sentinel PSK is refused at startup). The pairing token (`-T`) carries whichever PSK is in use. |
 
 ### Example Configuration
 
@@ -55,12 +56,41 @@ ENABLE_MDNS = true
 # set true to admit unpaired servers (same as the -a flag).
 UNPAIRED_ACCESS = false
 
+# Factory-style Pairing PSK, 64 hex characters (32 bytes). Optional:
+# without it the client generates one on first boot and prints the
+# matching pairing token at startup (and with the -T flag). Must be
+# unique per device and randomly generated, never reused across devices.
+# PAIRING_PSK_HEX = ""
+
 # Release the audio hardware so other apps can use it when stopped for 60s
 IDLE_TIMEOUT = 60
 
 # Drop a silent connection after 30 seconds (0 disables the watchdog)
 LIVENESS_TIMEOUT = 30
 ```
+
+## 🔑 Pairing
+
+sendspin-cpp v0.9 encrypts every connection (Noise), so a server must pair with the client
+before it may play. On first boot the client generates a Pairing PSK, stores it in the state
+directory, and derives a **pairing token** from it — the `SP:...` string a server such as Music
+Assistant asks for. The token carries the client identity and the PSK; entering it in the
+server pairs the two, after which the server reconnects with a long-term record and is trusted
+automatically.
+
+```bash
+# Print the pairing token and exit
+sendspin-client -T
+```
+
+The token is also printed at every startup, next to the Client ID. It is stable for the
+lifetime of the PSK, so it can be entered once and reused after reboots.
+
+To run the client with a specific PSK instead of the generated one (factory-style
+provisioning), set `PAIRING_PSK_HEX` in the config file to 64 hex characters. It must be
+unique per device and randomly generated; removing the key returns the client to the stored
+PSK. Servers that should play without pairing at all can be admitted with `UNPAIRED_ACCESS =
+true` (the `-a` flag).
 
 ## 🚀 Usage
 
@@ -78,6 +108,9 @@ LIVENESS_TIMEOUT = 30
 
 # With Idle Timeout (e.g. 30 seconds)
 ./sendspin-client -t 30 "My Client"
+
+# Show the pairing token for a server to pair with this client
+./sendspin-client -T
 ```
 
 ### Configuration File Only
@@ -244,6 +277,8 @@ Options:
   -m MIXER      Use ALSA hardware mixer for volume control
   -c FILE       Use configuration file (default: /etc/sendspin-client/sendspin-client.conf)
   -t SECONDS    Idle timeout in seconds before releasing audio device (0 = disable, default)
+  -a            Allow unpaired servers to play (default: off; they must pair first)
+  -T            Print the pairing token and exit
   -L            List available audio devices and exit
   -h            Show this help
 ```
