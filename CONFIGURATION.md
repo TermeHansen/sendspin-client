@@ -86,6 +86,14 @@ sendspin-client -T
 The token is also printed at every startup, next to the Client ID. It is stable for the
 lifetime of the PSK, so it can be entered once and reused after reboots.
 
+The packaged service runs as the `sendspin` user with its state in `/var/lib/sendspin-client`
+(mode 0700). To read the service's token, run the same command as that user, with the same
+state directory:
+
+```bash
+sudo -u sendspin env SENDSPIN_STATE_DIR=/var/lib/sendspin-client sendspin-client -T
+```
+
 To run the client with a specific PSK instead of the generated one (factory-style
 provisioning), set `PAIRING_PSK_HEX` in the config file to 64 hex characters. It must be
 unique per device and randomly generated; removing the key returns the client to the stored

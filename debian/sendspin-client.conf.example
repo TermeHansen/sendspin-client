@@ -61,6 +61,10 @@
 # it the client generates one on first boot and prints the matching pairing
 # token at startup (and with the -T flag). Must be unique per device and
 # randomly generated, never reused across devices.
+# To read the packaged service's token, run as its user with its state
+# directory:
+#   sudo -u sendspin env SENDSPIN_STATE_DIR=/var/lib/sendspin-client \
+#       sendspin-client -T
 # Default: unset
 # PAIRING_PSK_HEX = ""
 
