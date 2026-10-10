@@ -38,6 +38,9 @@
 ///   3. Retry gaps grow while the server is unreachable (1 s doubling backoff).
 ///   4. Backoff resets after a successful reconnect.
 ///   5. RECONNECT_ON_LOSS=false leaves the connection dropped.
+///   6. Pairing token mode (-T / PAIRING_PSK_HEX): the token is stable across restarts,
+///      malformed and all-zero keys are rejected, and a configured PSK is never persisted.
+///      Runs without a server: -T exits before any connection is opened.
 ///
 /// Registered with CTest when BUILD_TESTING=ON. See the top-level CMakeLists.txt.
 
@@ -1075,6 +1078,149 @@ bool test_reconnect_disabled(const std::string& client_path, const std::string& 
     return ok;
 }
 
+// ============================================================================
+// Pairing token scenarios
+// ============================================================================
+
+/// Run the client with -T (token mode): capture stderr and the exit status.
+struct TokenRun {
+    int exit_status{-1};
+    std::string output;
+
+    bool ok() const { return exit_status == 0; }
+    bool has_token() const {
+        return output.find("Pairing token: SP:") != std::string::npos;
+    }
+    std::string token() const {
+        const size_t begin = output.find("Pairing token: ");
+        if (begin == std::string::npos) {
+            return "";
+        }
+        const size_t start = begin + static_cast<size_t>(strlen("Pairing token: "));
+        size_t end = output.find('\n', start);
+        if (end == std::string::npos) {
+            end = output.size();
+        }
+        return output.substr(start, end - start);
+    }
+};
+
+TokenRun run_token_mode(const std::string& client_path, const std::string& conf_path,
+                        const std::string& state_dir) {
+    int pipefd[2];
+    TokenRun run;
+    if (::pipe(pipefd) != 0) {
+        run.output = "pipe() failed";
+        run.exit_status = -2;
+        return run;
+    }
+    const pid_t pid = ::fork();
+    if (pid < 0) {
+        ::close(pipefd[0]);
+        ::close(pipefd[1]);
+        run.output = "fork() failed";
+        run.exit_status = -2;
+        return run;
+    }
+    if (pid == 0) {
+        ::close(pipefd[0]);
+        ::dup2(pipefd[1], STDERR_FILENO);
+        ::close(pipefd[1]);
+        ::setenv("SENDSPIN_STATE_DIR", state_dir.c_str(), 1);
+        ::execl(client_path.c_str(), client_path.c_str(), "-T", "-c", conf_path.c_str(),
+                static_cast<char*>(nullptr));
+        _exit(127);
+    }
+    ::close(pipefd[1]);
+    char buf[512];
+    ssize_t r;
+    while ((r = ::read(pipefd[0], buf, sizeof(buf))) > 0) {
+        run.output.append(buf, static_cast<size_t>(r));
+    }
+    ::close(pipefd[0]);
+    int status = 0;
+    ::waitpid(pid, &status, 0);
+    run.exit_status = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
+    return run;
+}
+
+void write_token_conf(const std::string& path, const std::string& psk_hex) {
+    std::ofstream out(path, std::ios::trunc);
+    out << "ENABLE_MDNS = false\n";
+    if (!psk_hex.empty()) {
+        out << "PAIRING_PSK_HEX = \"" << psk_hex << "\"\n";
+    }
+    out.close();
+}
+
+bool test_pairing_token(const std::string& client_path, const std::string& workdir) {
+    bool ok = true;
+
+    // A token survives restarts: the Pairing PSK is persisted, so the same state directory
+    // must produce the same token every boot.
+    const std::string conf_a = workdir + "/token-empty.conf";
+    write_token_conf(conf_a, "");
+    TokenRun first = run_token_mode(client_path, conf_a, workdir);
+    if (!first.ok() || !first.has_token()) {
+        std::fprintf(stderr, "FAIL: -T did not exit 0 with a token:\n%s\n", first.output.c_str());
+        return false;
+    }
+    if (first.token().size() != 107) {
+        std::fprintf(stderr, "FAIL: token length %zu, expected 107\n", first.token().size());
+        ok = false;
+    }
+    TokenRun second = run_token_mode(client_path, conf_a, workdir);
+    if (!second.ok() || second.token() != first.token()) {
+        std::fprintf(stderr, "FAIL: token changed across restarts\n%s vs\n%s\n",
+                     first.token().c_str(), second.token().c_str());
+        ok = false;
+    }
+
+    // A malformed PAIRING_PSK_HEX is rejected without touching the stored state.
+    const std::string conf_bad = workdir + "/token-bad.conf";
+    write_token_conf(conf_bad, "xyz");
+    TokenRun bad = run_token_mode(client_path, conf_bad, workdir);
+    if (bad.ok() || bad.output.find("PAIRING_PSK_HEX must be exactly 64 hex characters") ==
+                        std::string::npos) {
+        std::fprintf(stderr, "FAIL: malformed PAIRING_PSK_HEX not rejected:\n%s\n",
+                     bad.output.c_str());
+        ok = false;
+    }
+    TokenRun after_bad = run_token_mode(client_path, conf_a, workdir);
+    if (!after_bad.ok() || after_bad.token() != first.token()) {
+        std::fprintf(stderr, "FAIL: stored token changed after a rejected PAIRING_PSK_HEX\n");
+        ok = false;
+    }
+
+    // A configured PSK outranks the stored one but is never persisted: its token differs from
+    // the stored one, and removing the key restores the original token.
+    const std::string conf_fixed = workdir + "/token-fixed.conf";
+    write_token_conf(conf_fixed, "00112233445566778899aabbccddeeff00112233445566778899aabbccddeeff");
+    TokenRun fixed = run_token_mode(client_path, conf_fixed, workdir);
+    if (!fixed.ok() || fixed.token() == first.token()) {
+        std::fprintf(stderr, "FAIL: configured PSK did not change the token:\n%s\n",
+                     fixed.output.c_str());
+        ok = false;
+    }
+    TokenRun restored = run_token_mode(client_path, conf_a, workdir);
+    if (!restored.ok() || restored.token() != first.token()) {
+        std::fprintf(stderr, "FAIL: removing PAIRING_PSK_HEX did not restore the stored token\n");
+        ok = false;
+    }
+
+    // An all-zero key (and the published Sentinel PSK) is refused by the library.
+    const std::string conf_zero = workdir + "/token-zero.conf";
+    write_token_conf(conf_zero, "0000000000000000000000000000000000000000000000000000000000000000");
+    TokenRun zero = run_token_mode(client_path, conf_zero, workdir);
+    if (zero.ok() || zero.output.find("Failed to start server") == std::string::npos) {
+        std::fprintf(stderr, "FAIL: all-zero PAIRING_PSK_HEX not refused:\n%s\n",
+                     zero.output.c_str());
+        ok = false;
+    }
+
+    return ok;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -1092,7 +1238,8 @@ int main(int argc, char** argv) {
     }
     const std::string workdir = dir;
 
-    bool ok = test_reconnect_enabled(client_path, workdir);
+    bool ok = test_pairing_token(client_path, workdir);
+    ok = test_reconnect_enabled(client_path, workdir) && ok;
     ok = test_reconnect_disabled(client_path, workdir) && ok;
 
     if (ok) {
