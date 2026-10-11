@@ -16,10 +16,15 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdarg>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <thread>
 #include <cmath>
+
+#include <fcntl.h>
+#include <unistd.h>
 
 // ALSA includes for mixer control (Linux only)
 #ifdef __linux__
@@ -126,8 +131,78 @@ void PortAudioRingBuffer::reset() {
 // PortAudioSink
 // ============================================================================
 
+namespace {
+
+/// @brief True when SENDSPIN_AUDIO_DEBUG is set in the environment; keeps the library chatter
+/// and the [ALSA DEBUG] lines enabled for diagnostics.
+bool audio_debug_enabled() {
+    static const bool enabled = getenv("SENDSPIN_AUDIO_DEBUG") != nullptr;
+    return enabled;
+}
+
+/// @brief fprintf-like print gated on SENDSPIN_AUDIO_DEBUG, for the PortAudioSink's own
+/// [ALSA DEBUG] lines.
+void alsa_debug_print(const char* fmt, ...) {
+    if (!audio_debug_enabled()) {
+        return;
+    }
+    va_list args;
+    va_start(args, fmt);
+    vfprintf(stderr, fmt, args);
+    va_end(args);
+}
+
+/// @brief Discard ALSA library errors ("ALSA lib pcm.c:...: Unknown PCM front"). Debian/Ubuntu
+/// ALSA prints one line per PCM name a device scan probes that the hardware lacks; the
+/// failures are expected during enumeration and every return code our code cares about is
+/// checked and reported by our own messages.
+void quiet_snd_error(const char* /*file*/, int /*line*/, const char* /*function*/, int /*err*/,
+                     const char* /*fmt*/, ...) {}
+
+}  // namespace
+
+void install_quiet_audio_logging() {
+    if (audio_debug_enabled()) {
+        return;
+    }
+    snd_lib_error_set_handler(quiet_snd_error);
+}
+
+AudioProbeQuiet::AudioProbeQuiet() {
+    if (audio_debug_enabled()) {
+        return;
+    }
+    // PortAudio's internal expression-failure chatter ("Expression '...' failed in
+    // 'src/hostapi/alsa/pa_linux_alsa.c'...") cannot be hooked portably: Debian/Ubuntu ship
+    // libportaudio with debug output compiled in but PaUtil_SetDebugPrintFunction not
+    // exported. Mute the descriptor instead, for the duration of the noisy call. Only used
+    // around enumeration and probing, which run before the client's threads exist.
+    std::fflush(stderr);
+    saved_ = ::dup(STDERR_FILENO);
+    const int null_fd = ::open("/dev/null", O_WRONLY);
+    if (saved_ >= 0 && null_fd >= 0) {
+        ::dup2(null_fd, STDERR_FILENO);
+    }
+    if (null_fd >= 0) {
+        ::close(null_fd);
+    }
+}
+
+AudioProbeQuiet::~AudioProbeQuiet() {
+    if (saved_ < 0) {
+        return;
+    }
+    std::fflush(stderr);
+    ::dup2(saved_, STDERR_FILENO);
+    ::close(saved_);
+}
+
 PortAudioSink::PortAudioSink() : ring_buffer_(RING_BUFFER_CAPACITY) {
-    PaError err = Pa_Initialize();
+    PaError err;
+    {
+        AudioProbeQuiet quiet;
+        err = Pa_Initialize();
+    }
     if (err != paNoError) {
         fprintf(stderr, "PortAudio init failed: %s\n", Pa_GetErrorText(err));
     }
@@ -363,6 +438,9 @@ bool PortAudioSink::is_format_supported(int device_index, uint32_t sample_rate, 
     params.sampleFormat = sample_format;
     params.suggestedLatency = Pa_GetDeviceInfo(device_index)->defaultLowOutputLatency;
 
+    // Probing a device for a format it does not support makes PortAudio's ALSA backend print
+    // its full failure chatter; mute it for the duration.
+    AudioProbeQuiet quiet;
     return Pa_IsFormatSupported(nullptr, &params, static_cast<double>(sample_rate)) ==
            paFormatIsSupported;
 }
@@ -589,20 +667,21 @@ snd_mixer_elem_t* PortAudioSink::get_alsa_mixer_elem(const std::string& mixer_sp
 }
 
 bool PortAudioSink::set_alsa_volume(const std::string& mixer_spec, uint8_t volume) {
-    fprintf(stderr, "[ALSA DEBUG] Setting volume to %d%% for mixer: %s\n", volume, mixer_spec.c_str());
+    alsa_debug_print("[ALSA DEBUG] Setting volume to %d%% for mixer: %s\n", volume, mixer_spec.c_str());
     
     // Use helper function to get mixer element
     snd_mixer_t* handle;
     snd_mixer_elem_t* elem = get_alsa_mixer_elem(mixer_spec, &handle);
     if (!elem) {
-        fprintf(stderr, "[ALSA DEBUG] Failed to get mixer element\n");
+        fprintf(stderr, "Warning: could not open ALSA mixer '%s'; using software volume\n",
+                mixer_spec.c_str());
         return false;
     }
-    
+
     // Set volume (convert 0-100 to ALSA dB range)
     long alsa_min, alsa_max;
     snd_mixer_selem_get_playback_dB_range(elem, &alsa_min, &alsa_max);
-    fprintf(stderr, "[ALSA DEBUG] dB range: %ld to %ld\n", alsa_min, alsa_max);
+    alsa_debug_print("[ALSA DEBUG] dB range: %ld to %ld\n", alsa_min, alsa_max);
     
     // Use the same formula as get_alsa_volume but in reverse
     double _vol = static_cast<double>(volume) / 100.0;
@@ -613,30 +692,32 @@ bool PortAudioSink::set_alsa_volume(const std::string& mixer_spec, uint8_t volum
     }
     double alsa_volume = 6000.0 * log10(_vol) + alsa_max;
     
-    fprintf(stderr, "[ALSA DEBUG] Target volume %.2f -> dB value: %.1f\n", _vol, alsa_volume);
+    alsa_debug_print("[ALSA DEBUG] Target volume %.2f -> dB value: %.1f\n", _vol, alsa_volume);
     
     if (snd_mixer_selem_set_playback_dB_all(elem, static_cast<long>(alsa_volume), 0) < 0) {
-        fprintf(stderr, "[ALSA DEBUG] Failed to set dB volume: %s\n", snd_strerror(errno));
+        fprintf(stderr, "Warning: setting ALSA mixer '%s' volume failed: %s\n",
+                mixer_spec.c_str(), snd_strerror(errno));
         snd_mixer_close(handle);
         return false;
     }
     
     int current_vol = get_alsa_volume(mixer_spec);
-    fprintf(stderr, "[ALSA DEBUG] Successfully set volume to %d%% (current: %d)\n", volume, current_vol);
+    alsa_debug_print("[ALSA DEBUG] Successfully set volume to %d%% (current: %d)\n", volume, current_vol);
 
     snd_mixer_close(handle);
     return true;
 }
 
 int PortAudioSink::get_alsa_volume(const std::string& mixer_spec) {
-    fprintf(stderr, "[ALSA DEBUG] Getting volume for mixer: %s\n", mixer_spec.c_str());
-    
+    alsa_debug_print("[ALSA DEBUG] Getting volume for mixer: %s\n", mixer_spec.c_str());
+
     // Use helper function to get mixer element
     snd_mixer_t* handle;
     snd_mixer_elem_t* elem = get_alsa_mixer_elem(mixer_spec, &handle);
     if (!elem) {
-        fprintf(stderr, "[ALSA DEBUG] Failed to get mixer element\n");
-        return false;
+        fprintf(stderr, "Warning: could not read volume from ALSA mixer '%s'\n",
+                mixer_spec.c_str());
+        return -1;
     }
     
     // Get volume
@@ -660,6 +741,8 @@ bool PortAudioSink::set_alsa_mute(const std::string& mixer_spec, bool muted) {
     snd_mixer_t* handle;
     snd_mixer_elem_t* elem = get_alsa_mixer_elem(mixer_spec, &handle);
     if (!elem) {
+        fprintf(stderr, "Warning: could not open ALSA mixer '%s'; using software mute\n",
+                mixer_spec.c_str());
         return false;
     }
     
@@ -684,6 +767,8 @@ bool PortAudioSink::get_alsa_mute(const std::string& mixer_spec) {
     snd_mixer_t* handle;
     snd_mixer_elem_t* elem = get_alsa_mixer_elem(mixer_spec, &handle);
     if (!elem) {
+        fprintf(stderr, "Warning: could not read mute state from ALSA mixer '%s'\n",
+                mixer_spec.c_str());
         return false;
     }
     

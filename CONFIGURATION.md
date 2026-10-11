@@ -23,7 +23,7 @@ ANOTHER_KEY = "quoted value"
 | `LIVENESS_TIMEOUT` | integer | 60 (library default) | Seconds of inbound silence before an established connection is dropped as dead (0 = disable) |
 | `RECONNECT_ON_LOSS` | boolean | true | Reconnect to `CONNECT_URL` after the liveness watchdog drops the connection. Outbound connections only; inbound (discovery) connections are left to their server. Backoff: 1 s doubling up to 30 s. |
 | `LOG_LEVEL` | string | "info" | Log level: none, error, warn, info, debug, verbose |
-| `CONNECT_URL` | string | "" (empty) | WebSocket URL to connect to (leave empty to listen) |
+| `CONNECT_URL` | string | "" (empty) | WebSocket URL to connect to (leave empty to listen). `http://` / `https://` are accepted as aliases for `ws://` / `wss://`. |
 | `ENABLE_MDNS` | boolean | true | Enable mDNS service advertisement |
 | `UNPAIRED_ACCESS` | boolean | false | Admit servers that have not paired. sendspin-cpp v0.9 encrypts every connection (Noise) and requires a server to pair before it may play; set true to allow unpaired servers to play (the `-a` flag). |
 | `PAIRING_PSK_HEX` | string | unset | Factory-style Pairing PSK as 64 hex characters (32 bytes). When set, it replaces the library-generated Pairing PSK on every start and is never written to the state directory; remove the key to return to the stored one. Must be drawn from a CSPRNG per device (an all-zero key or the published Sentinel PSK is refused at startup). The pairing token (`-T`) carries whichever PSK is in use. |
@@ -216,6 +216,21 @@ FRIENDLY_NAME = "Dev Client"
 LOG_LEVEL = "verbose"
 CONNECT_URL = "ws://localhost:8928/sendspin"
 ```
+
+### Audio Library Diagnostics
+
+The client keeps ALSA and PortAudio quiet: device enumeration on boards whose ALSA
+configuration lacks many standard PCM names (for example vc4-HDMI) otherwise buries the useful
+log under dozens of `ALSA lib ...` / `Expression ... failed` lines. All return codes are still
+checked and reported by the client's own messages. To see the library output again, for
+example when a device or mixer behaves oddly:
+
+```bash
+SENDSPIN_AUDIO_DEBUG=1 sendspin-client -L
+```
+
+`CONNECT_URL` also accepts `http://` and `https://` as aliases for `ws://` and `wss://` (the
+banner shows the normalized `ws(s)://` URL).
 
 ## 🐛 Troubleshooting
 

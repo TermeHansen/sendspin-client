@@ -343,6 +343,12 @@ int main(int argc, char* argv[]) {
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
 
+#ifdef SENDSPIN_HAS_PORTAUDIO
+    // Quiet the ALSA/PortAudio probe chatter before anything touches audio. Set
+    // SENDSPIN_AUDIO_DEBUG=1 in the environment to keep it for diagnostics.
+    install_quiet_audio_logging();
+#endif
+
     // Parse command line options
     LogLevel log_level = LogLevel::INFO;
     std::string connect_url;
@@ -487,6 +493,15 @@ int main(int argc, char* argv[]) {
         friendly_name = argv[optind];
     }
 
+    // Accept http(s):// as aliases for ws(s)://: the WebSocket upgrade is the same request, and
+    // a URL copied from a browser address bar or documentation written with http:// keeps
+    // working. IXWebSocket would otherwise refuse the scheme and the client would sit idle.
+    if (connect_url.rfind("http://", 0) == 0) {
+        connect_url = "ws://" + connect_url.substr(7);
+    } else if (connect_url.rfind("https://", 0) == 0) {
+        connect_url = "wss://" + connect_url.substr(8);
+    }
+
     // Resolve the server port before the startup banner so the printed value matches what the
     // client and the mDNS advertisement actually use.
     if (server_port_arg > 0) {
@@ -586,9 +601,8 @@ int main(int argc, char* argv[]) {
         int current_volume = PortAudioSink::get_alsa_volume(alsa_mixer_spec);
         if (current_volume >= 0) {
             fprintf(stderr, "ALSA mixer '%s' current volume: %d%%\n", alsa_mixer_spec.c_str(), current_volume);
-        } else {
-            fprintf(stderr, "Warning: Could not read current volume from ALSA mixer '%s'\n", alsa_mixer_spec.c_str());
         }
+        // A read failure already warns from PortAudioSink::get_alsa_volume().
     }
 #endif
 
@@ -609,7 +623,15 @@ int main(int argc, char* argv[]) {
 
     for (uint32_t sample_rate : sample_rates) {
         for (uint8_t bit_depth : bit_depths) {
-            if (PortAudioSink::is_format_supported(device_to_check, sample_rate, 2, bit_depth)) {
+            bool supported;
+            {
+                // The probe prints ALSA/PortAudio chatter for unsupported formats; mute just
+                // the probe so the "Device supports:" line below stays visible.
+                AudioProbeQuiet quiet;
+                supported = PortAudioSink::is_format_supported(device_to_check, sample_rate, 2,
+                                                               bit_depth);
+            }
+            if (supported) {
                 fprintf(stderr, "  Device supports: %uHz 2ch %ubit\n", sample_rate, bit_depth);
 
                 // Add FLAC format if supported
