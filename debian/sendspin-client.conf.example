@@ -17,11 +17,14 @@
 # Default: "SendSpin Client"
 # FRIENDLY_NAME = "My SendSpin Client"
 
-# Audio device index to use
-# -1 = use default device
+# Audio device to use (ALSA device string)
+# - "default" or empty = ALSA default device
+# - plughw:1,0 = card 1, device 0, with format conversion allowed
+# - hw:1,0 = card 1, device 0, direct access (no conversion)
+# - A plain number N is accepted for compatibility and means plughw:N,0
 # Use -L flag to list available devices
-# Default: -1
-# AUDIO_DEVICE = -1
+# Default: empty (default device)
+# AUDIO_DEVICE = "default"
 
 # ALSA mixer specification for hardware volume control
 # Format: "card:control" (e.g., "1:Digital" for card 1, Digital control)
@@ -113,12 +116,12 @@
 
 # Raspberry Pi with HDMI audio:
 # FRIENDLY_NAME = "Raspberry Pi HDMI"
-# AUDIO_DEVICE = 0
+# AUDIO_DEVICE = "plughw:0,0"
 # LOG_LEVEL = debug
 
 # USB Audio Interface:
 # FRIENDLY_NAME = "USB Audio Client"
-# AUDIO_DEVICE = 1
+# AUDIO_DEVICE = "plughw:1,0"
 # ALSA_MIXER_SPEC = "1:PCM"
 # LOG_LEVEL = info
 
@@ -133,7 +136,7 @@
 # ====================================
 
 # If you experience audio issues:
-# 1. Check device index with: sendspin-client -L
+# 1. Check device names with: sendspin-client -L
 # 2. Try different audio devices
 # 3. Check ALSA mixer settings with: alsamixer
 # 4. Increase AUDIO_BUFFER_MS for stability

@@ -50,8 +50,6 @@ jobs:
             cmake \
             git \
             ca-certificates \
-            libportaudio2 \
-            portaudio19-dev \
             libasound2-dev \
             libavahi-compat-libdnssd-dev \
             avahi-daemon
@@ -164,8 +162,6 @@ jobs:
                 cmake \
                 git \
                 ca-certificates \
-                libportaudio2 \
-                portaudio19-dev \
                 libasound2-dev \
                 libavahi-compat-libdnssd-dev \
                 avahi-daemon
@@ -255,8 +251,6 @@ jobs:
                 cmake \
                 git \
                 ca-certificates \
-                libportaudio2 \
-                portaudio19-dev \
                 libasound2-dev \
                 libavahi-compat-libdnssd-dev \
                 avahi-daemon \

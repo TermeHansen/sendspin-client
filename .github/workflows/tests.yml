@@ -27,8 +27,6 @@ jobs:
             build-essential \
             cmake \
             git \
-            libportaudio2 \
-            portaudio19-dev \
             libasound2-dev \
             libavahi-compat-libdnssd-dev
 

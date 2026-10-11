@@ -9,7 +9,7 @@ This directory contains the Debian packaging files to build a `.deb` package for
 ```bash
 sudo apt update
 sudo apt install build-essential debhelper devscripts dh-make cmake \
-                libportaudio2 portaudio19-dev libavahi-compat-libdnssd-dev \
+                libasound2-dev libavahi-compat-libdnssd-dev \
                 git patch
 ```
 

@@ -30,6 +30,6 @@ macOS has mDNS support built in; no extra dependencies needed.
 
 The client listens on port 8928 and advertises `_sendspin._tcp` via mDNS. Sendspin servers on the local network will discover and connect to it automatically.
 
-If PortAudio is available, audio is played through the default output device. Otherwise, audio is discarded (NullAudioSink).
+ALSA is required to build the client. Audio is played through the configured ALSA device; there is no null-sink fallback.
 
 Press Ctrl+C to stop.
