@@ -198,8 +198,11 @@ AudioProbeQuiet::~AudioProbeQuiet() {
 }
 
 PortAudioSink::PortAudioSink() : ring_buffer_(RING_BUFFER_CAPACITY) {
-    AudioProbeQuiet quiet;
-    PaError err = Pa_Initialize();
+    PaError err;
+    {
+        AudioProbeQuiet quiet;
+        err = Pa_Initialize();
+    }
     if (err != paNoError) {
         fprintf(stderr, "PortAudio init failed: %s\n", Pa_GetErrorText(err));
     }
@@ -374,7 +377,6 @@ bool PortAudioSink::is_format_supported(uint32_t sample_rate, uint8_t channels,
 }
 
 void PortAudioSink::list_devices() {
-    AudioProbeQuiet quiet;
     int device_count = Pa_GetDeviceCount();
     if (device_count < 0) {
         fprintf(stderr, "Error getting device count: %s\n", Pa_GetErrorText(device_count));
@@ -671,10 +673,11 @@ bool PortAudioSink::set_alsa_volume(const std::string& mixer_spec, uint8_t volum
     snd_mixer_t* handle;
     snd_mixer_elem_t* elem = get_alsa_mixer_elem(mixer_spec, &handle);
     if (!elem) {
-        alsa_debug_print("[ALSA DEBUG] Failed to get mixer element\n");
+        fprintf(stderr, "Warning: could not open ALSA mixer '%s'; using software volume\n",
+                mixer_spec.c_str());
         return false;
     }
-    
+
     // Set volume (convert 0-100 to ALSA dB range)
     long alsa_min, alsa_max;
     snd_mixer_selem_get_playback_dB_range(elem, &alsa_min, &alsa_max);
@@ -692,7 +695,8 @@ bool PortAudioSink::set_alsa_volume(const std::string& mixer_spec, uint8_t volum
     alsa_debug_print("[ALSA DEBUG] Target volume %.2f -> dB value: %.1f\n", _vol, alsa_volume);
     
     if (snd_mixer_selem_set_playback_dB_all(elem, static_cast<long>(alsa_volume), 0) < 0) {
-        alsa_debug_print("[ALSA DEBUG] Failed to set dB volume: %s\n", snd_strerror(errno));
+        fprintf(stderr, "Warning: setting ALSA mixer '%s' volume failed: %s\n",
+                mixer_spec.c_str(), snd_strerror(errno));
         snd_mixer_close(handle);
         return false;
     }
@@ -706,13 +710,14 @@ bool PortAudioSink::set_alsa_volume(const std::string& mixer_spec, uint8_t volum
 
 int PortAudioSink::get_alsa_volume(const std::string& mixer_spec) {
     alsa_debug_print("[ALSA DEBUG] Getting volume for mixer: %s\n", mixer_spec.c_str());
-    
+
     // Use helper function to get mixer element
     snd_mixer_t* handle;
     snd_mixer_elem_t* elem = get_alsa_mixer_elem(mixer_spec, &handle);
     if (!elem) {
-        alsa_debug_print("[ALSA DEBUG] Failed to get mixer element\n");
-        return false;
+        fprintf(stderr, "Warning: could not read volume from ALSA mixer '%s'\n",
+                mixer_spec.c_str());
+        return -1;
     }
     
     // Get volume
@@ -736,6 +741,8 @@ bool PortAudioSink::set_alsa_mute(const std::string& mixer_spec, bool muted) {
     snd_mixer_t* handle;
     snd_mixer_elem_t* elem = get_alsa_mixer_elem(mixer_spec, &handle);
     if (!elem) {
+        fprintf(stderr, "Warning: could not open ALSA mixer '%s'; using software mute\n",
+                mixer_spec.c_str());
         return false;
     }
     
@@ -760,6 +767,8 @@ bool PortAudioSink::get_alsa_mute(const std::string& mixer_spec) {
     snd_mixer_t* handle;
     snd_mixer_elem_t* elem = get_alsa_mixer_elem(mixer_spec, &handle);
     if (!elem) {
+        fprintf(stderr, "Warning: could not read mute state from ALSA mixer '%s'\n",
+                mixer_spec.c_str());
         return false;
     }
     
