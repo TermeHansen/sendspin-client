@@ -343,6 +343,12 @@ int main(int argc, char* argv[]) {
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
 
+#ifdef SENDSPIN_HAS_PORTAUDIO
+    // Quiet the ALSA/PortAudio probe chatter before anything touches audio. Set
+    // SENDSPIN_AUDIO_DEBUG=1 in the environment to keep it for diagnostics.
+    install_quiet_audio_logging();
+#endif
+
     // Parse command line options
     LogLevel log_level = LogLevel::INFO;
     std::string connect_url;
@@ -485,6 +491,15 @@ int main(int argc, char* argv[]) {
     } else if (optind < argc) {
         // Use command-line argument if provided
         friendly_name = argv[optind];
+    }
+
+    // Accept http(s):// as aliases for ws(s)://: the WebSocket upgrade is the same request, and
+    // a URL copied from a browser address bar or documentation written with http:// keeps
+    // working. IXWebSocket would otherwise refuse the scheme and the client would sit idle.
+    if (connect_url.rfind("http://", 0) == 0) {
+        connect_url = "ws://" + connect_url.substr(7);
+    } else if (connect_url.rfind("https://", 0) == 0) {
+        connect_url = "wss://" + connect_url.substr(8);
     }
 
     // Resolve the server port before the startup banner so the printed value matches what the

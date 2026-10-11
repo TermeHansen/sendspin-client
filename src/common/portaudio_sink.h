@@ -33,6 +33,34 @@
 
 namespace sendspin {
 
+/// @brief Install quiet audio-logging handlers for the process.
+///
+/// ALSA prints one "ALSA lib ..." line per PCM name a device scan probes that the hardware
+/// lacks; during startup enumeration this buries the useful log in dozens of lines. The
+/// handler installed here discards that output; every return code is still checked and
+/// reported by our own messages.
+///
+/// Set SENDSPIN_AUDIO_DEBUG=1 in the environment to keep the library output (and the
+/// PortAudioSink's own [ALSA DEBUG] lines) for diagnostics.
+void install_quiet_audio_logging();
+
+/// @brief Mute stderr for the lifetime of the guard, around a call known to print probe noise
+/// (PortAudio device enumeration and format probing; Debian/Ubuntu ship libportaudio with
+/// debug output compiled in and no exported hook to silence it). A no-op when
+/// SENDSPIN_AUDIO_DEBUG is set. Only for startup-time calls that run before the client's
+/// threads exist; muting is process-wide and would swallow other threads' output.
+class AudioProbeQuiet {
+public:
+    AudioProbeQuiet();
+    ~AudioProbeQuiet();
+
+    AudioProbeQuiet(const AudioProbeQuiet&) = delete;
+    AudioProbeQuiet& operator=(const AudioProbeQuiet&) = delete;
+
+private:
+    int saved_{-1};
+};
+
 /// @brief Lock-free single-producer single-consumer ring buffer for bridging
 /// push (AudioSink::write) and pull (PortAudio callback) audio models.
 class PortAudioRingBuffer {
