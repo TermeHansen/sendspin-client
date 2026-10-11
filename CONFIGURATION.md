@@ -17,7 +17,7 @@ ANOTHER_KEY = "quoted value"
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `FRIENDLY_NAME` | string | "SendSpin Client" | Friendly name shown to other devices |
-| `AUDIO_DEVICE` | integer | -1 (default) | Audio device index to use |
+| `AUDIO_DEVICE` | string | "default" | ALSA device string to use (`plughw:1,0`, `hw:0,0`, ...). A plain number N selects card N device 0 (`plughw:N,0`) for compatibility with older configs. |
 | `ALSA_MIXER_SPEC` | string | "" (empty) | ALSA mixer specification (format: "card:control") |
 | `IDLE_TIMEOUT` | integer | 0 (disabled) | Idle timeout in seconds before releasing the audio device |
 | `LIVENESS_TIMEOUT` | integer | 60 (library default) | Seconds of inbound silence before an established connection is dropped as dead (0 = disable) |
@@ -165,9 +165,9 @@ When running as a systemd service, the configuration file is automatically loade
 ### Example Priority
 
 ```bash
-# Config file has: AUDIO_DEVICE = 1
-# Command line: -d 2
-# Result: Uses device 2 (command-line overrides config file)
+# Config file has: AUDIO_DEVICE = "plughw:1,0"
+# Command line: -d plughw:2,0
+# Result: Uses device plughw:2,0 (command-line overrides config file)
 ```
 
 ## 🔧 Advanced Configuration
@@ -195,7 +195,7 @@ Chain multiple configuration files:
 
 ```conf
 FRIENDLY_NAME = "Raspberry Pi HDMI"
-AUDIO_DEVICE = 0
+AUDIO_DEVICE = "plughw:0,0"
 LOG_LEVEL = "debug"
 ```
 
@@ -203,7 +203,7 @@ LOG_LEVEL = "debug"
 
 ```conf
 FRIENDLY_NAME = "Music Server"
-AUDIO_DEVICE = 1
+AUDIO_DEVICE = "plughw:1,0"
 ALSA_MIXER_SPEC = "1:PCM"
 ENABLE_MDNS = true
 IDLE_TIMEOUT = 10
@@ -219,7 +219,7 @@ CONNECT_URL = "ws://localhost:8928/sendspin"
 
 ### Audio Library Diagnostics
 
-The client keeps ALSA and PortAudio quiet: device enumeration on boards whose ALSA
+The client keeps ALSA quiet: device enumeration on boards whose ALSA
 configuration lacks many standard PCM names (for example vc4-HDMI) otherwise buries the useful
 log under dozens of `ALSA lib ...` / `Expression ... failed` lines. All return codes are still
 checked and reported by the client's own messages. To see the library output again, for
@@ -296,7 +296,7 @@ Options:
   -l LEVEL      Log level: none, error, warn, info (default), debug, verbose
   -v            Verbose logging (same as -l verbose)
   -q            Quiet logging (same as -l error)
-  -d DEVICE     Select audio device by index (use -L to list devices)
+  -d DEVICE     Select audio device (ALSA string, e.g. plughw:1,0; use -L to list devices)
   -m MIXER      Use ALSA hardware mixer for volume control
   -c FILE       Use configuration file (default: /etc/sendspin-client/sendspin-client.conf)
   -t SECONDS    Idle timeout in seconds before releasing audio device (0 = disable, default)
@@ -315,8 +315,8 @@ Options:
 # Default friendly name for the client
 FRIENDLY_NAME="SendSpin Client"
 
-# Default audio device index (-1 for default)
-AUDIO_DEVICE=-1
+# Default audio device (empty for the ALSA default)
+AUDIO_DEVICE=""
 
 # ALSA mixer specification for hardware volume control
 # Format: "card:control" (e.g., "1:Digital")
@@ -371,8 +371,8 @@ git commit -m "Add production configuration"
 
 ```conf
 # Add comments to explain your settings
-# Using device 1 for USB audio interface
-AUDIO_DEVICE=1
+# Using device plughw:1,0 for the USB audio interface
+AUDIO_DEVICE="plughw:1,0"
 
 # Digital mixer for hardware volume control
 ALSA_MIXER_SPEC="1:Digital"

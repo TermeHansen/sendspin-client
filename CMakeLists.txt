@@ -20,16 +20,13 @@ set(BUILD_EXAMPLES OFF CACHE BOOL "Disable building sendspin-cpp examples" FORCE
 
 add_subdirectory(sendspin-cpp)
 
-# Find PortAudio for audio playback
-find_package(PkgConfig QUIET)
-if(PkgConfig_FOUND)
-    pkg_check_modules(PORTAUDIO portaudio-2.0)
-endif()
+# ALSA (libasound) for audio playback and hardware mixer control
+find_package(ALSA REQUIRED)
 
 # Create the client executable
 add_executable(sendspin-client
     src/main.cpp
-    src/common/portaudio_sink.cpp
+    src/common/alsa_sink.cpp
     src/config_parser.cpp
     src/utils.cpp
 )
@@ -52,15 +49,9 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "armv6l")
     message(STATUS "ARMv6: Linked libatomic (${ARMv6_LIBATOMIC})")
 endif()
 
-# Link PortAudio if available
-if(PORTAUDIO_FOUND)
-    target_link_libraries(sendspin-client PRIVATE ${PORTAUDIO_LINK_LIBRARIES})
-    target_include_directories(sendspin-client PRIVATE ${PORTAUDIO_INCLUDE_DIRS})
-    target_compile_definitions(sendspin-client PRIVATE SENDSPIN_HAS_PORTAUDIO=1)
-    message(STATUS "PortAudio found - audio playback enabled")
-else()
-    message(STATUS "PortAudio not found - audio playback disabled")
-endif()
+# Link ALSA
+target_include_directories(sendspin-client PRIVATE ${ALSA_INCLUDE_DIRS})
+target_link_libraries(sendspin-client PRIVATE ${ALSA_LIBRARIES})
 
 # mDNS service advertisement (for zeroconf discovery)
 if(NOT APPLE)
@@ -109,7 +100,7 @@ else()
 endif()
 set(CPACK_DEBIAN_PACKAGE_MAINTAINER "TermeHansen")
 set(CPACK_DEBIAN_PACKAGE_DESCRIPTION "SendSpin Client - Enhanced audio streaming client with ALSA hardware control")
-set(CPACK_DEBIAN_PACKAGE_DEPENDS "libportaudio2, libasound2, avahi-daemon, libatomic1")
+set(CPACK_DEBIAN_PACKAGE_DEPENDS "libasound2, avahi-daemon, libatomic1")
 set(CPACK_DEBIAN_PACKAGE_SECTION "sound")
 set(CPACK_DEBIAN_PACKAGE_PRIORITY "optional")
 set(CPACK_DEBIAN_PACKAGE_HOMEPAGE "https://github.com/TermeHansen/sendspin-client")

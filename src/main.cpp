@@ -28,7 +28,7 @@
 ///   -v            Verbose logging (same as -l verbose)
 ///   -q            Quiet logging (same as -l error)
 ///   -L            List available audio devices and exit
-///   -d DEVICE     Select audio device by index (use -L to list devices)
+///   -d DEVICE     Select audio device: ALSA device string, card number, or -1 (default)
 ///   -m MIXER      Use ALSA hardware mixer for volume control (format: card:control, e.g., "1:Digital")
 ///   -c FILE       Use configuration file (default: /etc/sendspin-client/sendspin-client.conf)
 ///   -t SECONDS    Idle timeout in seconds before releasing audio device (0 = disable, default)
@@ -39,10 +39,7 @@
 #include "sendspin/client.h"
 #include "sendspin/metadata_role.h"
 #include "sendspin/player_role.h"
-#ifdef SENDSPIN_HAS_PORTAUDIO
-#include "portaudio_sink.h"
-#include <portaudio.h>
-#endif
+#include "alsa_sink.h"
 
 #include <dns_sd.h>
 #include <getopt.h>
@@ -73,9 +70,6 @@ using namespace sendspin;
 static const uint16_t SENDSPIN_PORT = 8928;
 static const char* SENDSPIN_PATH = "/sendspin";
 static uint16_t server_port = SENDSPIN_PORT;
-
-// Tracks total audio bytes received (used when PortAudio is unavailable)
-static size_t null_audio_total_bytes = 0;
 
 // Manages mDNS service advertisement via dns_sd.h
 class MdnsAdvertiser {
@@ -343,16 +337,14 @@ int main(int argc, char* argv[]) {
     std::signal(SIGINT, signal_handler);
     std::signal(SIGTERM, signal_handler);
 
-#ifdef SENDSPIN_HAS_PORTAUDIO
-    // Quiet the ALSA/PortAudio probe chatter before anything touches audio. Set
+    // Quiet the ALSA probe chatter before anything touches audio. Set
     // SENDSPIN_AUDIO_DEBUG=1 in the environment to keep it for diagnostics.
     install_quiet_audio_logging();
-#endif
 
     // Parse command line options
     LogLevel log_level = LogLevel::INFO;
     std::string connect_url;
-    int audio_device_index = -1;
+    std::string audio_device;  // ALSA device string, card number, or empty for default
     bool list_devices = false;
     std::string alsa_mixer_spec;
     std::string config_file;
@@ -387,7 +379,7 @@ int main(int argc, char* argv[]) {
                 log_level = LogLevel::ERROR;
                 break;
             case 'd':
-                audio_device_index = std::atoi(optarg);
+                audio_device = optarg;
                 break;
             case 'm':
                 alsa_mixer_spec = optarg;
@@ -435,8 +427,8 @@ int main(int argc, char* argv[]) {
                 connect_url = config_parser.get_string("CONNECT_URL");
             }
             
-            if (audio_device_index == -1 && config_parser.has_key("AUDIO_DEVICE")) {
-                audio_device_index = config_parser.get_int("AUDIO_DEVICE", -1);
+            if (audio_device.empty() && config_parser.has_key("AUDIO_DEVICE")) {
+                audio_device = config_parser.get_string("AUDIO_DEVICE");
             }
             
             if (alsa_mixer_spec.empty() && config_parser.has_key("ALSA_MIXER_SPEC")) {
@@ -517,7 +509,7 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, " Active Configuration:\n");
     fprintf(stderr, "  Config File   : %s\n", effective_config_file.c_str());
     fprintf(stderr, "  Friendly Name : %s\n", friendly_name.c_str());
-    fprintf(stderr, "  Audio Device  : %d\n", audio_device_index);
+    fprintf(stderr, "  Audio Device  : %s\n", audio_device.empty() ? "default" : audio_device.c_str());
     fprintf(stderr, "  ALSA Mixer    : %s\n", alsa_mixer_spec.empty() ? "None" : alsa_mixer_spec.c_str());
     fprintf(stderr, "  Connect URL   : %s\n", connect_url.empty() ? "Listen Mode (Server)" : connect_url.c_str());
     fprintf(stderr, "  Idle Timeout  : %s\n", idle_timeout_s == 0 ? "inaktiv" : (std::to_string(idle_timeout_s) + " seconds").c_str());
@@ -540,19 +532,10 @@ int main(int argc, char* argv[]) {
     // --- END STARTUP LOGGING BLOCK ---
 
     // Handle device listing request
-#ifdef SENDSPIN_HAS_PORTAUDIO
     if (list_devices) {
-        // Initialize PortAudio just to list devices
-        PaError err = Pa_Initialize();
-        if (err == paNoError) {
-            PortAudioSink::list_devices();
-            Pa_Terminate();
-        } else {
-            fprintf(stderr, "PortAudio init failed: %s\n", Pa_GetErrorText(err));
-        }
+        AlsaSink::list_devices();
         return 0;
     }
-#endif
 
     // Configure the client. The client identity is no longer a configured string: sendspin-cpp
     // v0.9.0 derives it from a static X25519 keypair (persisted below) and exposes it via
@@ -592,30 +575,30 @@ int main(int argc, char* argv[]) {
     }
 
     // Create audio output and client
-#ifdef SENDSPIN_HAS_PORTAUDIO
-    PortAudioSink audio_sink;
+    AlsaSink audio_sink;
     if (!alsa_mixer_spec.empty()) {
         audio_sink.set_alsa_mixer_spec(alsa_mixer_spec);
-        
+
         // Try to read and display current hardware volume
-        int current_volume = PortAudioSink::get_alsa_volume(alsa_mixer_spec);
+        int current_volume = AlsaSink::get_alsa_volume(alsa_mixer_spec);
         if (current_volume >= 0) {
             fprintf(stderr, "ALSA mixer '%s' current volume: %d%%\n", alsa_mixer_spec.c_str(), current_volume);
         }
-        // A read failure already warns from PortAudioSink::get_alsa_volume().
+        // A read failure already warns from AlsaSink::get_alsa_volume().
     }
-#endif
 
     SendspinClient client(std::move(config));
 
     // Add roles
     PlayerRoleConfig player_config;
 
-#ifdef SENDSPIN_HAS_PORTAUDIO
     // Dynamically determine supported audio formats based on device capabilities
-    int device_to_check = audio_device_index >= 0 ? audio_device_index : Pa_GetDefaultOutputDevice();
+    const std::string device_to_check = !audio_device.empty() && audio_device != "-1"
+                                            ? audio_device
+                                            : "";
 
-    fprintf(stderr, "Checking supported formats for device %d...\n", device_to_check);
+    fprintf(stderr, "Checking supported formats for device '%s'...\n",
+            device_to_check.empty() ? "default" : device_to_check.c_str());
 
     // Test common sample rates
     std::vector<uint32_t> sample_rates = {44100, 48000, 96000, 192000};
@@ -623,14 +606,10 @@ int main(int argc, char* argv[]) {
 
     for (uint32_t sample_rate : sample_rates) {
         for (uint8_t bit_depth : bit_depths) {
-            bool supported;
-            {
-                // The probe prints ALSA/PortAudio chatter for unsupported formats; mute just
-                // the probe so the "Device supports:" line below stays visible.
-                AudioProbeQuiet quiet;
-                supported = PortAudioSink::is_format_supported(device_to_check, sample_rate, 2,
-                                                               bit_depth);
-            }
+            // The probe opens the PCM with the unmodified ALSA error handler; the quiet
+            // handler installed at startup already swallows the expected probe chatter.
+            bool supported = AlsaSink::is_format_supported(device_to_check, sample_rate, 2,
+                                                           bit_depth);
             if (supported) {
                 fprintf(stderr, "  Device supports: %uHz 2ch %ubit\n", sample_rate, bit_depth);
 
@@ -647,10 +626,10 @@ int main(int argc, char* argv[]) {
             }
         }
     }
-#endif
 
     if (player_config.audio_formats.empty()) {
-        fprintf(stderr, "Warning: No supported formats found for device %d, using defaults\n", device_to_check);
+        fprintf(stderr, "Warning: No supported formats found for device '%s', using defaults\n",
+                device_to_check.empty() ? "default" : device_to_check.c_str());
         player_config.audio_formats = {
             {SendspinCodecFormat::FLAC, 2, 44100, 16},
             {SendspinCodecFormat::FLAC, 2, 48000, 16},
@@ -663,12 +642,12 @@ int main(int argc, char* argv[]) {
     
     // Set initial volume and mute to match hardware mixer if using ALSA control
     if (!alsa_mixer_spec.empty()) {
-        int current_volume = PortAudioSink::get_alsa_volume(alsa_mixer_spec);
+        int current_volume = AlsaSink::get_alsa_volume(alsa_mixer_spec);
         if (current_volume >= 0) {
             player.update_volume(static_cast<uint8_t>(current_volume));
         }
-        
-        bool current_mute = PortAudioSink::get_alsa_mute(alsa_mixer_spec);
+
+        bool current_mute = AlsaSink::get_alsa_mute(alsa_mixer_spec);
         player.update_muted(current_mute);
     }
     
@@ -682,40 +661,28 @@ int main(int argc, char* argv[]) {
         std::chrono::steady_clock::time_point last_stream_end_time{std::chrono::steady_clock::now()};
         int idle_timeout_s{0};
 
-#ifdef SENDSPIN_HAS_PORTAUDIO
-        PortAudioSink& sink;
+        AlsaSink& sink;
         PlayerRole& player;
-        int audio_device_index;
-        BasicPlayerListener(PortAudioSink& s, PlayerRole& p, int device_index, int timeout_s) 
-            : idle_timeout_s(timeout_s), sink(s), player(p), audio_device_index(device_index) {}
-#else
-        BasicPlayerListener(int timeout_s) : idle_timeout_s(timeout_s) {}
-#endif
+        std::string audio_device;
+        BasicPlayerListener(AlsaSink& s, PlayerRole& p, std::string device, int timeout_s)
+            : idle_timeout_s(timeout_s), sink(s), player(p), audio_device(std::move(device)) {}
 
         size_t on_audio_write(uint8_t* data, size_t length, uint32_t timeout_ms) override {
-#ifdef SENDSPIN_HAS_PORTAUDIO
             return sink.write(data, length, timeout_ms);
-#else
-            (void)data;
-            (void)timeout_ms;
-            null_audio_total_bytes += length;
-            return length;
-#endif
         }
 
         void on_stream_start() override {
             fprintf(stderr, ">>> Stream started\n");
             this->stream_active = true;
             this->device_open = true;
-#ifdef SENDSPIN_HAS_PORTAUDIO
             auto& params = player.get_current_stream_params();
             if (params.sample_rate.has_value() && params.channels.has_value() &&
                 params.bit_depth.has_value()) {
-                sink.configure(*params.sample_rate, *params.channels, *params.bit_depth, audio_device_index);
+                sink.configure(*params.sample_rate, *params.channels, *params.bit_depth,
+                               audio_device);
             } else {
-                fprintf(stderr, ">>> Stream params not yet available for PortAudio\n");
+                fprintf(stderr, ">>> Stream params not yet available for ALSA\n");
             }
-#endif
         }
 
         void on_stream_end() override {
@@ -727,15 +694,11 @@ int main(int argc, char* argv[]) {
                 fprintf(stderr, ">>> Audio device will be released in %d seconds if idle\n", this->idle_timeout_s);
             }
 
-#ifdef SENDSPIN_HAS_PORTAUDIO
             sink.clear();
-#endif
         }
 
-#ifdef SENDSPIN_HAS_PORTAUDIO
         void on_volume_changed(uint8_t vol) override { sink.set_volume(vol); }
         void on_mute_changed(bool muted) override { sink.set_muted(muted); }
-#endif
     };
 
     struct BasicMetadataListener : MetadataRoleListener {
@@ -759,14 +722,10 @@ int main(int argc, char* argv[]) {
         bool is_network_ready() override { return true; }
     };
 
-#ifdef SENDSPIN_HAS_PORTAUDIO
-    BasicPlayerListener player_listener(audio_sink, player, audio_device_index, idle_timeout_s);
+    BasicPlayerListener player_listener(audio_sink, player, audio_device, idle_timeout_s);
     audio_sink.on_frames_played = [&player](uint32_t frames, int64_t timestamp) {
         player.notify_audio_played(frames, timestamp);
     };
-#else
-    BasicPlayerListener player_listener(idle_timeout_s);
-#endif
     BasicMetadataListener metadata_listener;
     BasicClientListener client_listener;
     HostNetworkProvider network_provider;
@@ -847,12 +806,11 @@ int main(int argc, char* argv[]) {
     while (running.load()) {
         client.loop();
         reconnect.tick(client);
-#ifdef SENDSPIN_HAS_PORTAUDIO
         // Sync audio sink volume periodically (catches all volume change sources)
         if (++tick % 25 == 0) {
             uint8_t current_volume = player.get_volume();
             bool current_muted = player.get_muted();
-            
+
             // Only update if values have changed
             if (current_volume != last_volume) {
                 audio_sink.set_volume(current_volume);
@@ -874,9 +832,6 @@ int main(int argc, char* argv[]) {
                 player_listener.device_open = false;
             }
         }
-#else
-        ++tick;
-#endif
         std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
 
@@ -885,9 +840,5 @@ int main(int argc, char* argv[]) {
         mdns.stop();
     }
     client.stop();
-
-#ifndef SENDSPIN_HAS_PORTAUDIO
-    fprintf(stderr, "Total audio bytes received: %zu\n", null_audio_total_bytes);
-#endif
     return 0;
 }

@@ -11,7 +11,7 @@ x86_64 + arm64 + armhf + armv6/Raspberry Pi 1).
 CMakeLists.txt      Top-level build; also CPack/DEB metadata
 VERSION             Single source of truth for the version string
 src/                Client application (main.cpp, config_parser, utils)
-src/common/         PortAudio audio sink (portaudio_sink.{h,cpp})
+src/common/         Native ALSA audio sink (alsa_sink.{h,cpp})
 sendspin-cpp/       Git submodule — the library; has its own CLAUDE.md
 debian/             debhelper packaging (control, rules, service, changelog)
 cmake/              armv6-toolchain.cmake for Raspberry Pi 1 cross builds
@@ -33,12 +33,11 @@ cmake --build build -j
 Binary: `build/sendspin-client`. Build dirs (`build/`, `build_test/`,
 `obj-*`) are gitignored working areas — never commit them.
 
-Dependencies (Debian): `build-essential cmake git libportaudio2
-portaudio19-dev libasound2-dev libavahi-compat-libdnssd-dev avahi-daemon
-libatomic1`.
+Dependencies (Debian): `build-essential cmake git libasound2-dev
+libavahi-compat-libdnssd-dev avahi-daemon libatomic1`.
 
-PortAudio is optional: without it the build succeeds and the client runs with
-a null audio sink (`SENDSPIN_HAS_PORTAUDIO` is not defined).
+ALSA (libasound) is a hard requirement: the build configures the PCM and the
+mixer directly, there is no optional-audio-backend fallback.
 
 ## Architecture notes
 

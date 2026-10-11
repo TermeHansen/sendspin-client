@@ -6,7 +6,7 @@ A feature-rich SendSpin client implementation based on the [sendspin-cpp](https:
 
 - **Full SendSpin Protocol Support**: Complete implementation of the SendSpin audio streaming protocol
 - **Encrypted Connections with Server Pairing**: Noise-encrypted connections (sendspin-cpp v0.9); servers pair with the client through a pairing token before they may play
-- **Enhanced Audio Playback**: Advanced PortAudio integration with device selection and format detection
+- **Native ALSA Playback**: Direct ALSA output with device selection and format detection (no PortAudio layer)
 - **Hardware Volume Control**: ALSA mixer support for direct hardware volume control on Linux
 - **Automatic Discovery**: mDNS/zeroconf service advertisement for easy device discovery
 - **Multi-Format Support**: Automatic detection and negotiation of supported audio formats (FLAC, OPUS, PCM)
@@ -20,9 +20,8 @@ A feature-rich SendSpin client implementation based on the [sendspin-cpp](https:
 - CMake 3.10+
 - [sendspin-cpp](https://github.com/Sendspin/sendspin-cpp) (included as submodule)
 
-### Optional Dependencies
-- **PortAudio** (for audio playback): `libportaudio2` and `portaudio19-dev` development headers
-- **ALSA** (for hardware volume control on Linux): `libasound2-dev`
+### Required Dependencies
+- **ALSA** (for audio playback and hardware volume control): `libasound2-dev`
 - **Avahi/mDNS** (for zeroconf discovery on Linux): `libavahi-compat-libdnssd-dev`
 
 ## Building
@@ -54,8 +53,8 @@ make
 # List available audio devices
 ./sendspin-client -L
 
-# Use specific audio device
-./sendspin-client -d 2 "My Client"
+# Use specific audio device (ALSA device string or card number)
+./sendspin-client -d plughw:2,0 "My Client"
 
 # Use ALSA hardware mixer for volume control
 ./sendspin-client -m "1:Digital" "My Client"
@@ -129,7 +128,7 @@ to the stored PSK. To admit servers that have not paired (no token needed), set
 
 The client is built on top of the sendspin-cpp library and extends it with:
 
-1. **Enhanced PortAudio Integration**: Device selection, format detection, and hardware control
+1. **Native ALSA Integration**: Device selection, format detection, and hardware control
 2. **Automatic Format Negotiation**: Intelligent selection of supported audio formats
 3. **Cross-Platform Compatibility**: Works with various audio backends
 4. **Discovery Services**: mDNS advertisement for easy network discovery
@@ -150,8 +149,8 @@ Create `/etc/sendspin-client/sendspin-client.conf` with your settings:
 # Friendly name
 FRIENDLY_NAME = "My SendSpin Client"
 
-# Audio device
-AUDIO_DEVICE = 1
+# Audio device (ALSA device string, or a card number for plughw:N,0)
+AUDIO_DEVICE = "plughw:1,0"
 
 # ALSA mixer for hardware volume
 ALSA_MIXER_SPEC = "1:Digital"
