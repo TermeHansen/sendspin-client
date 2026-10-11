@@ -154,6 +154,8 @@ private:
     uint8_t channels_{0};
     uint8_t bits_per_sample_{0};
     size_t bytes_per_frame_{0};
+    // Set when a write() finds no open PCM; reset by a successful configure().
+    std::atomic<bool> warned_no_pcm_{false};
 
     // Serializes configure()/stop()/clear() against write() on the sync-task thread, and
     // protects the PCM handle pointer. The ALSA library is not thread-safe for concurrent

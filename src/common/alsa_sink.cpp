@@ -37,6 +37,10 @@ static constexpr useconds_t PCM_LATENCY_US = 50000;
 
 namespace {
 
+/// @brief Kernel-side "operation not supported" (linux/errno.h ENOTSUPP, 524). Not part of
+/// glibc's errno set, so defined here; ALSA returns it through some drivers' open path.
+static constexpr int KERNEL_ENOTSUPP = 524;
+
 /// @brief True when SENDSPIN_AUDIO_DEBUG is set in the environment; keeps the library chatter
 /// and the [ALSA DEBUG] lines enabled for diagnostics.
 bool audio_debug_enabled() {
@@ -125,6 +129,7 @@ bool AlsaSink::configure(uint32_t sample_rate, uint8_t channels, uint8_t bits_pe
     channels_ = channels;
     bits_per_sample_ = bits_per_sample;
     bytes_per_frame_ = static_cast<size_t>(channels) * (bits_per_sample / 8);
+    warned_no_pcm_.store(false, std::memory_order_release);
     return open_stream_();
 }
 
@@ -136,7 +141,21 @@ bool AlsaSink::open_stream_() {
     // race can never block past the on_audio_write() timeout.
     const int err = snd_pcm_open(&pcm, device_.c_str(), SND_PCM_STREAM_PLAYBACK, SND_PCM_NONBLOCK);
     if (err < 0) {
-        fprintf(stderr, "ALSA: cannot open device '%s': %s\n", device_.c_str(), snd_strerror(err));
+        if (err == -KERNEL_ENOTSUPP) {
+            // Kernel-side "not supported" (524, not a standard errno). Some drivers,
+            // notably vc4-HDMI on the Raspberry Pi, return it when the device is held by
+            // another player or the hardware rejects the setup; it does not point at the
+            // requested format, so point the user at the usual fixes instead.
+            fprintf(stderr,
+                    "ALSA: cannot open device '%s': the kernel driver refused it (ENOTSUPP). "
+                    "Another player (e.g. Kodi) may be holding the device, or the driver "
+                    "rejects the setup; try AUDIO_DEVICE=\"default\" and check with "
+                    "'aplay -D %s <wav>'\n",
+                    device_.c_str(), device_.c_str());
+        } else {
+            fprintf(stderr, "ALSA: cannot open device '%s': %s\n", device_.c_str(),
+                    snd_strerror(err));
+        }
         return false;
     }
     pcm_ = pcm;
@@ -179,6 +198,12 @@ size_t AlsaSink::write(uint8_t* data, size_t length, uint32_t timeout_ms) {
     if (pcm_ == nullptr) {
         // No open PCM (configure() failed or the device was released). Pace the caller the
         // way a full buffer would: returning 0 immediately would hot-spin the sync task.
+        // Warn once, so a device that cannot open does not spam the log per 20 ms push.
+        if (!warned_no_pcm_.exchange(true)) {
+            fprintf(stderr,
+                    "Warning: audio device not open; dropping audio until the next stream "
+                    "start reopens it\n");
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(2));
         return 0;
     }
@@ -468,13 +493,17 @@ bool AlsaSink::is_format_supported(const std::string& device, uint32_t sample_ra
         return false;
     }
 
+    // Apply the exact combination before testing: testing format, channels and rate
+    // separately against the device's full space passes combinations the device cannot
+    // run together, which the client would then advertise and fail to open at play time.
     snd_pcm_hw_params_t* params = nullptr;
     snd_pcm_hw_params_alloca(&params);
     snd_pcm_hw_params_any(pcm, params);
     const bool supported =
-        snd_pcm_hw_params_test_format(pcm, params, format) == 0 &&
-        snd_pcm_hw_params_test_channels(pcm, params, channels) == 0 &&
-        snd_pcm_hw_params_test_rate(pcm, params, sample_rate, 0) == 0;
+        snd_pcm_hw_params_set_access(pcm, params, SND_PCM_ACCESS_RW_INTERLEAVED) == 0 &&
+        snd_pcm_hw_params_set_format(pcm, params, format) == 0 &&
+        snd_pcm_hw_params_set_channels(pcm, params, channels) == 0 &&
+        snd_pcm_hw_params_set_rate(pcm, params, sample_rate, 0) == 0;
 
     snd_pcm_close(pcm);
     return supported;
