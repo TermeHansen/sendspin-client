@@ -5,6 +5,7 @@ A feature-rich SendSpin client implementation based on the [sendspin-cpp](https:
 ## Features
 
 - **Full SendSpin Protocol Support**: Complete implementation of the SendSpin audio streaming protocol
+- **Encrypted Connections with Server Pairing**: Noise-encrypted connections (sendspin-cpp v0.9); servers pair with the client through a pairing token before they may play
 - **Enhanced Audio Playback**: Advanced PortAudio integration with device selection and format detection
 - **Hardware Volume Control**: ALSA mixer support for direct hardware volume control on Linux
 - **Automatic Discovery**: mDNS/zeroconf service advertisement for easy device discovery
@@ -62,12 +63,47 @@ make
 # Automatically release audio device after 30 seconds of inactivity
 ./sendspin-client -t 30 "My Client"
 
+# Show the pairing token (for a server such as Music Assistant to pair with this client)
+./sendspin-client -T
+
 # Verbose logging
 ./sendspin-client -v "My Client"
 
 # See all options
 ./sendspin-client -h
 ```
+
+## Pairing
+
+sendspin-cpp v0.9 encrypts every connection, so a server must pair with the client before it
+may play. On first boot the client generates a Pairing PSK, stores it in its state directory,
+and derives the **pairing token** from it — the `SP:...` string a server such as Music
+Assistant asks for. Entering it in the server pairs the two; the server then reconnects with a
+long-term record and is trusted automatically, across reboots.
+
+```bash
+# Print the pairing token and exit
+./sendspin-client -T
+```
+
+The token is also printed at every startup, next to the Client ID.
+
+**Running as a systemd service:** the packaged service runs as the `sendspin` user with its
+state in `/var/lib/sendspin-client` (mode 0700). Read the service's token from its journal, or
+run `-T` as the service user with the same state directory:
+
+```bash
+# From the service journal (printed at every startup)
+journalctl -u sendspin-client | grep "Pairing token"
+
+# Or directly, as the service user
+sudo -u sendspin env SENDSPIN_STATE_DIR=/var/lib/sendspin-client sendspin-client -T
+```
+
+To run with a specific PSK instead of the generated one (factory-style provisioning), set
+`PAIRING_PSK_HEX` to 64 hex characters in the config file; removing the key returns the client
+to the stored PSK. To admit servers that have not paired (no token needed), set
+`UNPAIRED_ACCESS = true` or pass `-a`. See `CONFIGURATION.md` for details.
 
 ## Advanced Features
 
@@ -126,6 +162,10 @@ IDLE_TIMEOUT = 60
 # Drop a silent connection after 60 seconds (0 disables the watchdog)
 LIVENESS_TIMEOUT = 60
 
+# Allow servers that have not paired to play (default: false; pairing is
+# required otherwise - see the Pairing section above)
+UNPAIRED_ACCESS = false
+
 # Log level
 LOG_LEVEL = "info"
 ```
@@ -172,6 +212,9 @@ sudo systemctl enable sendspin-client
 sudo systemctl start sendspin-client
 sudo systemctl status sendspin-client
 ```
+
+The service's pairing token appears in its journal at every startup; see the
+[Pairing](#pairing) section above.
 
 The project uses GitHub Actions for automated CI/CD with support for multiple distributions including Debian Trixie, Ubuntu 24.04, and Ubuntu 26.04.
 
