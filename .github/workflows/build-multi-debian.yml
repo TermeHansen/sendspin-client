@@ -188,6 +188,13 @@ jobs:
       - name: List uploaded files (${{ matrix.arch }})
         run: ls -la ${{ env.PARENT_DIR }}/upload
 
+      - name: Upload arm artifacts (temporary)
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.arch }}-${{ env.DIST_NAME }}
+          path: ${{ env.PARENT_DIR }}/upload/*_${{ matrix.arch }}_${{ env.DIST_NAME }}.deb
+          retention-days: 1
+
       - name: Clean up
         run: |
           # Clean up build directories to prevent permission issues
@@ -300,20 +307,18 @@ jobs:
           path: ${{ env.UPLOAD_DIR }}/*.deb
           retention-days: 1
 
-  # --- Job 4: Combine and release on the RPi4 self-hosted runner ---
-  # Runs on the same arm64 runner as build-arm, so the arm debs it produced are
-  # already in PARENT_DIR/upload on the same host.
+  # --- Job 4: Combine and release on a GitHub-hosted runner ---
+  # Collects every arch's debs from artifacts (amd64, armhf, arm64, armv6) and
+  # attaches them to the GitHub release. Artifacts cannot be attached to a
+  # release directly, so they are downloaded first. This job consumes only
+  # artifacts, so it needs no self-hosted runner or shared filesystem.
   upload-all:
     name: Upload all packages
     needs: [build-amd64, build-arm, build-armv6]
-    runs-on: [self-hosted, Linux, ARM64]
+    runs-on: ubuntu-latest
     permissions:
       contents: write
     steps:
-      - name: Set up environment
-        run: |
-          echo "PARENT_DIR=$(dirname $GITHUB_WORKSPACE)" >> $GITHUB_ENV
-
       - name: Download amd64 artifacts
         uses: actions/download-artifact@v8
         with:
@@ -328,41 +333,35 @@ jobs:
           path: artifacts
           merge-multiple: true
 
-      - name: Merge all .deb files into the RPi4 local upload directory
+      - name: Download armhf artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: armhf-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Download arm64 artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: arm64-*
+          path: artifacts
+          merge-multiple: true
+
+      - name: Collect release files
         run: |
-          # The arm build (same runner) already placed its debs in PARENT_DIR/upload
-          mkdir -p ${{ env.PARENT_DIR }}/upload
+          # Gather all .deb files except debug symbol packages into one
+          # directory that the release step uploads.
+          mkdir -p release-files
+          find artifacts -name "*.deb" ! -name "*dbgsym*" -exec cp -n {} release-files/ \;
 
-          # Copy in amd64 and armv6 debs downloaded from artifacts
-          find artifacts -name "*.deb" -exec cp -n {} ${{ env.PARENT_DIR }}/upload/ \;
-
-      - name: List all collected files
-        run: ls -la ${{ env.PARENT_DIR }}/upload
-
-      - name: Create Release (if triggered by release)
-        if: github.event_name == 'release'
-        run: |
-          # Create a temporary directory for release files (excluding debug symbols)
-          mkdir -p ${{ env.PARENT_DIR }}/release-upload
-
-          # Copy all .deb files except debug symbol packages
-          find ${{ env.PARENT_DIR }}/upload -name "*.deb" ! -name "*dbgsym*" -exec cp {} ${{ env.PARENT_DIR }}/release-upload/ \;
-
-          # List what will be uploaded to release
           echo "Files to be uploaded to release:"
-          ls -la ${{ env.PARENT_DIR }}/release-upload/
+          ls -la release-files/
 
       - name: Upload Release files
         if: github.event_name == 'release'
         uses: softprops/action-gh-release@v3
         with:
-          files: ${{ env.PARENT_DIR }}/release-upload/*.deb
+          files: release-files/*.deb
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Clean up
-        run: |
-          # Clean up build directories to prevent permission issues
-          echo "Cleaning up build directories..."
-          rm -rf obj-*-linux-gnu*
