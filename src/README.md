@@ -1,6 +1,6 @@
 # Basic Client Example
 
-Runs the sendspin-cpp client on a host computer (macOS/Linux). Advertises via mDNS so Sendspin servers discover and connect automatically.
+Runs the sendspin-cpp client on a Linux host. Advertises via mDNS so Sendspin servers discover and connect automatically.
 
 ## Build
 
@@ -18,8 +18,6 @@ The binary is at `build/examples/basic_client/basic_client`.
 ```sh
 sudo apt install libavahi-compat-libdnssd-dev
 ```
-
-macOS has mDNS support built in; no extra dependencies needed.
 
 ## Run
 
