@@ -61,6 +61,18 @@ jobs:
         with:
           submodules: recursive
 
+      - name: Determine package version
+        run: |
+          # Package version from debian/changelog. The artifact uploads are
+          # scoped by it so a stale .deb left on a persistent runner can never
+          # be picked up and published on the release.
+          DEB_VERSION=$(sed -n '1s/^sendspin-client (\([^)]*\)).*/\1/p' debian/changelog)
+          if [ -z "$DEB_VERSION" ]; then
+            echo "Could not determine the package version from debian/changelog" >&2
+            exit 1
+          fi
+          echo "DEB_VERSION=${DEB_VERSION}" >> "$GITHUB_ENV"
+
       - name: Build Debian package (amd64)
         run: |
           # Clean up old packages
@@ -91,7 +103,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: amd64-${{ env.DIST_NAME }}
-          path: ${{ env.PARENT_DIR }}/upload/*.deb
+          path: ${{ env.PARENT_DIR }}/upload/${{ env.DEB_PACKAGE_NAME }}_${{ env.DEB_VERSION }}_*.deb
           retention-days: 1
 
   # --- Job 2: Build armhf and arm64 on the RPi4 self-hosted runner ---
@@ -127,6 +139,18 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: recursive
+
+      - name: Determine package version
+        run: |
+          # Package version from debian/changelog. The artifact uploads are
+          # scoped by it so a stale .deb left on a persistent runner can never
+          # be picked up and published on the release.
+          DEB_VERSION=$(sed -n '1s/^sendspin-client (\([^)]*\)).*/\1/p' debian/changelog)
+          if [ -z "$DEB_VERSION" ]; then
+            echo "Could not determine the package version from debian/changelog" >&2
+            exit 1
+          fi
+          echo "DEB_VERSION=${DEB_VERSION}" >> "$GITHUB_ENV"
 
       - name: Build Debian package (${{ matrix.arch }})
         run: |
@@ -192,7 +216,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.arch }}-${{ env.DIST_NAME }}
-          path: ${{ env.PARENT_DIR }}/upload/*_${{ matrix.arch }}_${{ env.DIST_NAME }}.deb
+          path: ${{ env.PARENT_DIR }}/upload/${{ env.DEB_PACKAGE_NAME }}_${{ env.DEB_VERSION }}_${{ matrix.arch }}_${{ env.DIST_NAME }}.deb
           retention-days: 1
 
       - name: Clean up
@@ -222,6 +246,18 @@ jobs:
         uses: actions/checkout@v7
         with:
           submodules: recursive
+
+      - name: Determine package version
+        run: |
+          # Package version from debian/changelog. The artifact uploads are
+          # scoped by it so a stale .deb left on a persistent runner can never
+          # be picked up and published on the release.
+          DEB_VERSION=$(sed -n '1s/^sendspin-client (\([^)]*\)).*/\1/p' debian/changelog)
+          if [ -z "$DEB_VERSION" ]; then
+            echo "Could not determine the package version from debian/changelog" >&2
+            exit 1
+          fi
+          echo "DEB_VERSION=${DEB_VERSION}" >> "$GITHUB_ENV"
 
       - name: Build in Docker container
         run: |
@@ -304,7 +340,7 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: armv6-${{ env.DIST_NAME }}
-          path: ${{ env.UPLOAD_DIR }}/*.deb
+          path: ${{ env.UPLOAD_DIR }}/${{ env.DEB_PACKAGE_NAME }}_${{ env.DEB_VERSION }}_armv6_${{ env.DIST_NAME }}.deb
           retention-days: 1
 
   # --- Job 4: Combine and release on a GitHub-hosted runner ---

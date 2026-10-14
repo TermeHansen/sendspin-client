@@ -11,18 +11,22 @@ A feature-rich SendSpin client implementation based on the [sendspin-cpp](https:
 - **Automatic Discovery**: mDNS/zeroconf service advertisement for easy device discovery
 - **Multi-Format Support**: Automatic detection and negotiation of supported audio formats (FLAC, OPUS, PCM)
 - **Auto Device Release**: Optional idle timeout to automatically release audio hardware for other applications
-- **Cross-Platform**: Works on Linux, macOS, and Windows (with appropriate dependencies)
+- **Linux Only**: Audio output is native ALSA with no other backend; macOS and Windows are not supported
 
 ## Requirements
 
+**Linux only.** Audio output is native ALSA and ALSA is a hard build requirement
+(`find_package(ALSA REQUIRED)`); there is no fallback audio backend, so macOS and
+Windows are not supported.
+
 ### Core Dependencies
-- C++20 compiler (GCC 11+, Clang 14+, MSVC 2022+)
+- C++20 compiler (GCC 11+, Clang 14+)
 - CMake 3.10+
 - [sendspin-cpp](https://github.com/Sendspin/sendspin-cpp) (included as submodule)
 
 ### Required Dependencies
 - **ALSA** (for audio playback and hardware volume control): `libasound2-dev`
-- **Avahi/mDNS** (for zeroconf discovery on Linux): `libavahi-compat-libdnssd-dev`
+- **Avahi/mDNS** (for zeroconf discovery): `libavahi-compat-libdnssd-dev`
 
 ## Building
 
@@ -113,8 +117,8 @@ to the stored PSK. To admit servers that have not paired (no token needed), set
 - Automatic device release to share hardware with other processes
 
 ### Volume Control
-- Software volume mixing (cross-platform)
-- Hardware volume control via ALSA (Linux only)
+- Software volume mixing
+- Hardware volume control via ALSA
 - Independent mute control
 - Volume synchronization between software and hardware controls
 
@@ -130,8 +134,7 @@ The client is built on top of the sendspin-cpp library and extends it with:
 
 1. **Native ALSA Integration**: Device selection, format detection, and hardware control
 2. **Automatic Format Negotiation**: Intelligent selection of supported audio formats
-3. **Cross-Platform Compatibility**: Works with various audio backends
-4. **Discovery Services**: mDNS advertisement for easy network discovery
+3. **Discovery Services**: mDNS advertisement for easy network discovery
 
 ## License
 
