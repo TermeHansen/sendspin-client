@@ -333,7 +333,7 @@ struct NoiseInitiator {
         if (server_priv.empty()) {
             return false;
         }
-        if (noise_handshakestate_new_by_name(&hs, NOISE_SUITE_CHACHAPOLY.data(),
+        if (noise_handshakestate_new_by_name(&hs, NOISE_SUITE_CHACHAPOLY,
                                              NOISE_ROLE_INITIATOR) != NOISE_ERROR_NONE) {
             return false;
         }
@@ -1057,6 +1057,10 @@ bool test_reconnect_disabled(const std::string& client_path, const std::string& 
 
     ok &= wait_until([&] { return stub.handshake_count() >= 1; }, 15,
                      "initial handshake never completed", proc.log.get());
+    // The connection must be admitted before the server goes silent: the liveness watchdog
+    // only runs on an operational connection, and since sendspin-cpp v0.9.4 the client sends
+    // client/hello only after server/hello, so muting too early would starve admission.
+    ok &= proc.log->wait_for(ADMITTED_LINE, 1, 10);
 
     stub.set_muted(true);
     ok &= proc.log->wait_for(WATCHDOG_LINE, 1, LIVENESS_S + 10);
