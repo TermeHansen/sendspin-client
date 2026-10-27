@@ -26,12 +26,22 @@
 
 namespace sendspin {
 
-/// @brief Map a 0-100 volume onto a hardware mixer's dB range on the spec's curve,
-/// amplitude = (v/100)^1.5, i.e. 30*log10(v/100) dB below max. Clamped to the control's floor.
-long mixer_dB_for_volume(long min, long max, uint8_t volume);
+/// @brief How a 0-100 volume maps onto a hardware mixer control's dB range.
+enum class MixerCurve {
+    kSpec,    ///< The spec's perceived-loudness curve: amplitude (v/100)^1.5, 30*log10 dB.
+    kLinear,  ///< dB linear in volume, matching how alsamixer lays its scale out.
+    kCubic,   ///< Amplitude (v/100)^3, the steeper curve Snapcast uses for hardware volume.
+};
+
+/// @brief Parse a curve name ("spec", "linear", "cubic"). @return false when unrecognized.
+bool parse_mixer_curve(const std::string& name, MixerCurve& curve);
+
+/// @brief Map a 0-100 volume onto a hardware mixer's dB range on the given curve.
+/// Clamped to the control's floor; volume 0 and 100 land exactly on the floor and the max.
+long mixer_dB_for_volume(long min, long max, uint8_t volume, MixerCurve curve = MixerCurve::kSpec);
 
 /// @brief The inverse of mixer_dB_for_volume(): the 0-100 volume a mixer dB reading stands for.
-uint8_t volume_for_mixer_dB(long min, long max, long dB);
+uint8_t volume_for_mixer_dB(long min, long max, long dB, MixerCurve curve = MixerCurve::kSpec);
 
 /// @brief Install a quiet ALSA error handler for the process.
 ///
@@ -86,6 +96,10 @@ public:
     /// @param mixer_spec Mixer specification in format "card:control" (e.g., "1:Digital")
     void set_alsa_mixer_spec(const std::string& mixer_spec);
 
+    /// @brief Select the curve mapping volume onto the mixer's dB range. Default is kSpec.
+    /// Safe to call before or after set_alsa_mixer_spec(); applies to the next write.
+    void set_mixer_curve(MixerCurve curve) { mixer_curve_ = curve; }
+
     /// @brief Check if an ALSA PCM supports a given format natively.
     /// @param device ALSA device string; same semantics as configure(). A plain card number
     ///               is probed as hw:N,0 so the plug layer cannot claim rates it would only
@@ -99,12 +113,14 @@ public:
     /// @brief Set hardware volume using ALSA mixer.
     /// @param mixer_spec Mixer specification in format "card:control" (e.g., "1:Digital")
     /// @return true if successful, false otherwise.
-    static bool set_alsa_volume(const std::string& mixer_spec, uint8_t volume);
+    static bool set_alsa_volume(const std::string& mixer_spec, uint8_t volume,
+                                MixerCurve curve = MixerCurve::kSpec);
 
     /// @brief Get hardware volume using ALSA mixer.
     /// @param mixer_spec Mixer specification in format "card:control" (e.g., "1:Digital")
     /// @return volume in 0-100 range, or -1 if failed.
-    static int get_alsa_volume(const std::string& mixer_spec);
+    static int get_alsa_volume(const std::string& mixer_spec,
+                               MixerCurve curve = MixerCurve::kSpec);
 
     /// @brief Set hardware mute state using ALSA mixer.
     /// @param mixer_spec Mixer specification in format "card:control" (e.g., "1:Digital")
@@ -209,6 +225,8 @@ private:
     uint8_t volume_{100};
     bool muted_{false};
     std::string alsa_mixer_spec_;
+    // Curve used to map volume onto the mixer's dB range; kSpec unless configured otherwise.
+    MixerCurve mixer_curve_{MixerCurve::kSpec};
     void update_volume_multiplier_();
     static void apply_volume_(uint8_t* data, size_t len, uint8_t bytes_per_sample, uint64_t scale);
 

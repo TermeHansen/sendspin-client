@@ -385,7 +385,7 @@ void AlsaSink::set_volume(uint8_t volume) {
     // The mixer carries the level when it has the control; the software gain only ever covers
     // what the mixer cannot, so it is recomputed from both fields rather than forced to unity.
     if (mixer_elem_ != nullptr) {
-        start_mixer_ramp_(mixer_dB_for_volume(mixer_dB_min_, mixer_dB_max_, volume_));
+        start_mixer_ramp_(mixer_dB_for_volume(mixer_dB_min_, mixer_dB_max_, volume_, mixer_curve_));
     }
 
     update_volume_multiplier_();
@@ -565,28 +565,68 @@ void AlsaSink::list_devices() {
 // ALSA hardware volume control
 // ============================================================================
 
-long mixer_dB_for_volume(long min, long max, uint8_t volume) {
+bool parse_mixer_curve(const std::string& name, MixerCurve& curve) {
+    if (name == "spec") {
+        curve = MixerCurve::kSpec;
+    } else if (name == "linear") {
+        curve = MixerCurve::kLinear;
+    } else if (name == "cubic") {
+        curve = MixerCurve::kCubic;
+    } else {
+        return false;
+    }
+    return true;
+}
+
+namespace {
+
+/// @brief dB per volume-decade * 100 for a curve, i.e. the slope of dB = max + slope*log10(v/100).
+/// kSpec is 3000 (30 dB/decade); kCubic is 6000 (60 dB/decade). kLinear is not logarithmic.
+int mixer_curve_slope_centi_dB(MixerCurve curve) {
+    return curve == MixerCurve::kCubic ? 6000 : 3000;
+}
+
+}  // namespace
+
+long mixer_dB_for_volume(long min, long max, uint8_t volume, MixerCurve curve) {
     if (volume >= 100) {
         return max;
     }
     if (volume == 0) {
         return min;  // the curve is -inf here; the floor is the closest a control can get
     }
-    // The spec's curve, amplitude = (v/100)^1.5, is 30*log10(v/100) dB below max, in 0.01 dB.
+    if (curve == MixerCurve::kLinear) {
+        // dB linear in volume: 0% is the floor, 100% the max, equal dB steps in between.
+        const double dB = static_cast<double>(max) +
+                          (static_cast<double>(volume) / 100.0) *
+                              static_cast<double>(min - max);
+        return std::max(min, static_cast<long>(std::lround(dB)));
+    }
+    // The spec's curve, amplitude = (v/100)^1.5, is 30*log10(v/100) dB below max, in 0.01 dB;
+    // the cubic (Snapcast) curve is twice that. Volume 0 never reaches the floor on either,
+    // which is what the min clamp handles.
+    const int slope = mixer_curve_slope_centi_dB(curve);
     const double dB =
-        static_cast<double>(max) + 3000.0 * std::log10(static_cast<double>(volume) / 100.0);
+        static_cast<double>(max) + slope * std::log10(static_cast<double>(volume) / 100.0);
     return std::max(min, static_cast<long>(std::lround(dB)));
 }
 
-uint8_t volume_for_mixer_dB(long min, long max, long dB) {
+uint8_t volume_for_mixer_dB(long min, long max, long dB, MixerCurve curve) {
     if (dB <= min) {
         return 0;
     }
     if (dB >= max) {
         return 100;
     }
+    if (curve == MixerCurve::kLinear) {
+        // The inverse of the linear branch above.
+        const double volume =
+            100.0 * static_cast<double>(max - dB) / static_cast<double>(max - min);
+        return static_cast<uint8_t>(std::lround(std::clamp(volume, 0.0, 100.0)));
+    }
     // The inverse of mixer_dB_for_volume().
-    const double volume = 100.0 * std::pow(10.0, static_cast<double>(dB - max) / 3000.0);
+    const int slope = mixer_curve_slope_centi_dB(curve);
+    const double volume = 100.0 * std::pow(10.0, static_cast<double>(dB - max) / slope);
     return static_cast<uint8_t>(std::lround(std::clamp(volume, 0.0, 100.0)));
 }
 
@@ -716,7 +756,7 @@ void AlsaSink::report_mixer_change_() {
     }
 
     if (have_dB && !muted) {
-        volume_ = volume_for_mixer_dB(mixer_dB_min_, mixer_dB_max_, dB);
+        volume_ = volume_for_mixer_dB(mixer_dB_min_, mixer_dB_max_, dB, mixer_curve_);
     }
     muted_ = muted;
     // A control whose floor is not silent reports volume 0 here; this is what makes it silent.
@@ -816,7 +856,7 @@ snd_mixer_elem_t* AlsaSink::get_alsa_mixer_elem(const std::string& mixer_spec,
     return elem;
 }
 
-bool AlsaSink::set_alsa_volume(const std::string& mixer_spec, uint8_t volume) {
+bool AlsaSink::set_alsa_volume(const std::string& mixer_spec, uint8_t volume, MixerCurve curve) {
     alsa_debug_print("[ALSA DEBUG] Setting volume to %d%% for mixer: %s\n", volume, mixer_spec.c_str());
 
     // Use helper function to get mixer element
@@ -833,7 +873,7 @@ bool AlsaSink::set_alsa_volume(const std::string& mixer_spec, uint8_t volume) {
     snd_mixer_selem_get_playback_dB_range(elem, &alsa_min, &alsa_max);
     alsa_debug_print("[ALSA DEBUG] dB range: %ld to %ld\n", alsa_min, alsa_max);
 
-    const long alsa_volume = mixer_dB_for_volume(alsa_min, alsa_max, volume);
+    const long alsa_volume = mixer_dB_for_volume(alsa_min, alsa_max, volume, curve);
 
     alsa_debug_print("[ALSA DEBUG] Target volume %d%% -> dB value: %ld\n", volume, alsa_volume);
 
@@ -844,14 +884,14 @@ bool AlsaSink::set_alsa_volume(const std::string& mixer_spec, uint8_t volume) {
         return false;
     }
 
-    int current_vol = get_alsa_volume(mixer_spec);
+    int current_vol = get_alsa_volume(mixer_spec, curve);
     alsa_debug_print("[ALSA DEBUG] Successfully set volume to %d%% (current: %d)\n", volume, current_vol);
 
     snd_mixer_close(handle);
     return true;
 }
 
-int AlsaSink::get_alsa_volume(const std::string& mixer_spec) {
+int AlsaSink::get_alsa_volume(const std::string& mixer_spec, MixerCurve curve) {
     alsa_debug_print("[ALSA DEBUG] Getting volume for mixer: %s\n", mixer_spec.c_str());
 
     // Use helper function to get mixer element
@@ -868,7 +908,7 @@ int AlsaSink::get_alsa_volume(const std::string& mixer_spec) {
     snd_mixer_selem_get_playback_dB_range(elem, &alsa_min, &alsa_max);
     snd_mixer_selem_get_playback_dB(elem, SND_MIXER_SCHN_MONO, &alsa_volume);
 
-    const int volume = volume_for_mixer_dB(alsa_min, alsa_max, alsa_volume);
+    const int volume = volume_for_mixer_dB(alsa_min, alsa_max, alsa_volume, curve);
     snd_mixer_close(handle);
     return volume;
 }

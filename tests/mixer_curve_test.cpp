@@ -40,6 +40,8 @@ constexpr long MAX_DB = 0;
 int main() {
     using sendspin::mixer_dB_for_volume;
     using sendspin::volume_for_mixer_dB;
+    using sendspin::MixerCurve;
+    using sendspin::parse_mixer_curve;
 
     check(mixer_dB_for_volume(MIN_DB, MAX_DB, 100) == MAX_DB, "full volume is the control max");
     check(mixer_dB_for_volume(MIN_DB, MAX_DB, 0) == MIN_DB, "zero volume is the control floor");
@@ -58,6 +60,36 @@ int main() {
     check(volume_for_mixer_dB(MIN_DB, MAX_DB, MIN_DB - 100) == 0, "inverse clamps below the floor");
     check(volume_for_mixer_dB(MIN_DB, MAX_DB, MAX_DB) == 100, "inverse clamps at the max");
     check(volume_for_mixer_dB(MIN_DB, MAX_DB, MAX_DB + 100) == 100, "inverse clamps above the max");
+
+    // The cubic (Snapcast) curve is twice the spec slope in dB: -18.06 dB at 50 on a 60 dB range.
+    check(mixer_dB_for_volume(MIN_DB, MAX_DB, 50, MixerCurve::kCubic) == -1806,
+          "cubic follows the 60*log10 slope");
+
+    // The linear curve is dB linear in volume: -30 dB at 50 on a -60..0 range.
+    check(mixer_dB_for_volume(MIN_DB, MAX_DB, 50, MixerCurve::kLinear) == -3000,
+          "linear is dB linear in volume");
+    check(mixer_dB_for_volume(MIN_DB, MAX_DB, 25, MixerCurve::kLinear) == -1500,
+          "linear quarter point");
+    check(mixer_dB_for_volume(MIN_DB, MAX_DB, 100, MixerCurve::kLinear) == MAX_DB,
+          "linear full volume is the control max");
+    check(mixer_dB_for_volume(MIN_DB, MAX_DB, 0, MixerCurve::kLinear) == MIN_DB,
+          "linear zero volume is the control floor");
+
+    // Every curve round-trips through its inverse, at volumes above where the steeper curves
+    // would clamp to the floor (the cubic curve hits -60 dB by volume 10 on this range).
+    for (MixerCurve curve : {MixerCurve::kSpec, MixerCurve::kLinear, MixerCurve::kCubic}) {
+        for (uint8_t volume : {20, 25, 50, 75, 99, 100}) {
+            const long dB = mixer_dB_for_volume(MIN_DB, MAX_DB, volume, curve);
+            check(volume_for_mixer_dB(MIN_DB, MAX_DB, dB, curve) == volume,
+                  "round-trips through the inverse on every curve");
+        }
+    }
+
+    MixerCurve parsed = MixerCurve::kCubic;
+    check(parse_mixer_curve("spec", parsed) && parsed == MixerCurve::kSpec, "parses 'spec'");
+    check(parse_mixer_curve("linear", parsed) && parsed == MixerCurve::kLinear, "parses 'linear'");
+    check(parse_mixer_curve("cubic", parsed) && parsed == MixerCurve::kCubic, "parses 'cubic'");
+    check(!parse_mixer_curve("bogus", parsed), "rejects an unknown curve name");
 
     if (failures != 0) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);
