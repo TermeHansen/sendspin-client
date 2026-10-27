@@ -15,6 +15,7 @@
 #include "alsa_sink.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <cstdarg>
 #include <cstdio>
@@ -32,6 +33,17 @@ namespace sendspin {
 // scheduling jitter without underruns; the player's time model compensates through the
 // played-frame timestamps this sink reports.
 static constexpr useconds_t PCM_LATENCY_US = 50000;
+
+// A hardware mixer write is stepped over this long, so the level does not jump in one click.
+static constexpr int MIXER_RAMP_STEPS = 4;
+static constexpr int MIXER_RAMP_STEP_MS = 5;
+
+/// @brief Monotonic milliseconds, for spacing mixer ramp steps.
+static int64_t mixer_now_ms() {
+    return std::chrono::duration_cast<std::chrono::milliseconds>(
+               std::chrono::steady_clock::now().time_since_epoch())
+        .count();
+}
 
 // ============================================================================
 
@@ -84,6 +96,7 @@ AlsaSink::AlsaSink() = default;
 
 AlsaSink::~AlsaSink() {
     stop();
+    this->mixer_close_();
 }
 
 snd_pcm_format_t AlsaSink::format_for_bits_(uint8_t bits_per_sample) {
@@ -369,51 +382,61 @@ void AlsaSink::clear() {
 void AlsaSink::set_volume(uint8_t volume) {
     volume_ = volume > 100 ? 100 : volume;
 
-    // Try hardware volume control first if ALSA mixer is specified
-    if (!alsa_mixer_spec_.empty()) {
-        if (set_alsa_volume(alsa_mixer_spec_, volume_)) {
-            // Hardware volume control succeeded, set software volume to full (no scaling)
-            volume_multiplier_.store(UINT64_C(1) << 32, std::memory_order_relaxed);
-            return;
-        }
+    // The mixer carries the level when it has the control; the software gain only ever covers
+    // what the mixer cannot, so it is recomputed from both fields rather than forced to unity.
+    if (mixer_elem_ != nullptr) {
+        start_mixer_ramp_(mixer_dB_for_volume(mixer_dB_min_, mixer_dB_max_, volume_));
     }
 
-    // Fall back to software volume control
     update_volume_multiplier_();
 }
 
 void AlsaSink::set_muted(bool muted) {
     muted_ = muted;
 
-    // Try hardware mute control first if ALSA mixer is specified
-    if (!alsa_mixer_spec_.empty()) {
-        if (set_alsa_mute(alsa_mixer_spec_, muted_)) {
-            // Hardware mute control succeeded
-            return;
+    // A control without a switch leaves the mute to the software gain below.
+    if (mixer_elem_ != nullptr && mixer_has_switch_) {
+        if (snd_mixer_selem_set_playback_switch_all(mixer_elem_, muted ? 0 : 1) >= 0) {
+            mixer_reported_muted_ = muted;
         }
     }
 
-    // Fall back to software mute control
     update_volume_multiplier_();
 }
 
 void AlsaSink::set_alsa_mixer_spec(const std::string& mixer_spec) {
     alsa_mixer_spec_ = mixer_spec;
+    mixer_close_();
+    if (!alsa_mixer_spec_.empty()) {
+        // Held open for the run, so poll() can watch it for changes made outside this process.
+        mixer_open_();
+    }
 }
 
 void AlsaSink::update_volume_multiplier_() {
+    volume_multiplier_.store(software_gain_(), std::memory_order_relaxed);
+}
+
+uint64_t AlsaSink::software_gain_() const {
     static constexpr uint64_t Q32_ONE = UINT64_C(1) << 32;
-    if (muted_ || volume_ == 0) {
-        volume_multiplier_.store(0, std::memory_order_relaxed);
-    } else if (volume_ >= 100) {
-        volume_multiplier_.store(Q32_ONE, std::memory_order_relaxed);
-    } else {
-        // Quadratic curve: (vol/100)^2 for perceptually uniform control.
-        // Q32 multiplier = vol * vol * 2^32 / 10000
-        uint64_t v = volume_;
-        uint64_t multiplier = (v * v * Q32_ONE) / 10000;
-        volume_multiplier_.store(multiplier, std::memory_order_relaxed);
+    // Volume 0 is silence per the spec; a control whose floor is only -60 dB cannot reach it, so
+    // the PCM gain carries it. This is independent of mute, which stays on the switch.
+    if (volume_ == 0) {
+        return 0;
     }
+    // The mixer owns the level when it has a control, so the PCM stays at unity and only a mute
+    // without a hardware switch falls back to gain 0.
+    if (mixer_elem_ != nullptr) {
+        return (muted_ && !mixer_has_switch_) ? 0 : Q32_ONE;
+    }
+    // Without a mixer, volume and mute both stay in software.
+    if (muted_) {
+        return 0;
+    }
+    // Quadratic curve: (vol/100)^2 for perceptually uniform control.
+    // Q32 multiplier = vol * vol * 2^32 / 10000
+    const uint64_t v = volume_;
+    return (v * v * Q32_ONE) / 10000;
 }
 
 void AlsaSink::apply_volume_(uint8_t* data, size_t len, uint8_t bytes_per_sample,
@@ -542,6 +565,206 @@ void AlsaSink::list_devices() {
 // ALSA hardware volume control
 // ============================================================================
 
+long mixer_dB_for_volume(long min, long max, uint8_t volume) {
+    if (volume >= 100) {
+        return max;
+    }
+    if (volume == 0) {
+        return min;  // the curve is -inf here; the floor is the closest a control can get
+    }
+    // The spec's curve, amplitude = (v/100)^1.5, is 30*log10(v/100) dB below max, in 0.01 dB.
+    const double dB =
+        static_cast<double>(max) + 3000.0 * std::log10(static_cast<double>(volume) / 100.0);
+    return std::max(min, static_cast<long>(std::lround(dB)));
+}
+
+uint8_t volume_for_mixer_dB(long min, long max, long dB) {
+    if (dB <= min) {
+        return 0;
+    }
+    if (dB >= max) {
+        return 100;
+    }
+    // The inverse of mixer_dB_for_volume().
+    const double volume = 100.0 * std::pow(10.0, static_cast<double>(dB - max) / 3000.0);
+    return static_cast<uint8_t>(std::lround(std::clamp(volume, 0.0, 100.0)));
+}
+
+bool AlsaSink::mixer_open_() {
+    mixer_ = nullptr;
+    mixer_elem_ = nullptr;
+    mixer_elem_ = get_alsa_mixer_elem(alsa_mixer_spec_, &mixer_);
+    if (mixer_elem_ == nullptr) {
+        fprintf(stderr, "Warning: could not open ALSA mixer '%s'; using software volume\n",
+                alsa_mixer_spec_.c_str());
+        return false;
+    }
+    if (snd_mixer_selem_get_playback_dB_range(mixer_elem_, &mixer_dB_min_, &mixer_dB_max_) < 0) {
+        fprintf(stderr, "Warning: ALSA mixer '%s' has no playback volume; using software volume\n",
+                alsa_mixer_spec_.c_str());
+        mixer_close_();
+        return false;
+    }
+    mixer_has_switch_ = snd_mixer_selem_has_playback_switch(mixer_elem_) != 0;
+    sync_mixer_reported_();
+    return true;
+}
+
+void AlsaSink::mixer_close_() {
+    if (mixer_ != nullptr) {
+        snd_mixer_close(mixer_);
+    }
+    mixer_ = nullptr;
+    mixer_elem_ = nullptr;
+    mixer_ramping_ = false;
+}
+
+void AlsaSink::sync_mixer_reported_() {
+    if (mixer_elem_ == nullptr) {
+        return;
+    }
+    long dB = 0;
+    if (snd_mixer_selem_get_playback_dB(mixer_elem_, SND_MIXER_SCHN_MONO, &dB) == 0) {
+        mixer_reported_dB_ = dB;
+    }
+    int value = 0;
+    mixer_reported_muted_ =
+        mixer_has_switch_ &&
+        snd_mixer_selem_get_playback_switch(mixer_elem_, SND_MIXER_SCHN_MONO, &value) == 0 &&
+        value == 0;
+}
+
+bool AlsaSink::write_mixer_dB_(long dB) {
+    if (mixer_elem_ == nullptr) {
+        return false;
+    }
+    if (snd_mixer_selem_set_playback_dB_all(mixer_elem_, dB, 0) < 0) {
+        return false;
+    }
+    // Store the read-back, not the request: ALSA rounds to the control's step, and the rounded
+    // value is what the next event reports. Recording the request would make that echo look like
+    // a change made outside this process.
+    long actual = dB;
+    if (snd_mixer_selem_get_playback_dB(mixer_elem_, SND_MIXER_SCHN_MONO, &actual) == 0) {
+        mixer_reported_dB_ = actual;
+    } else {
+        mixer_reported_dB_ = dB;
+    }
+    return true;
+}
+
+bool AlsaSink::start_mixer_ramp_(long target_dB) {
+    if (mixer_elem_ == nullptr) {
+        return false;
+    }
+    // A move of one step or less is not worth a ramp; write it now.
+    const long distance = std::abs(target_dB - mixer_reported_dB_);
+    const long step =
+        std::max<long>(1, std::abs(mixer_dB_max_ - mixer_dB_min_) / MIXER_RAMP_STEPS);
+    if (distance <= step) {
+        return write_mixer_dB_(target_dB);
+    }
+    mixer_ramping_ = true;
+    mixer_ramp_from_dB_ = mixer_reported_dB_;
+    mixer_ramp_target_dB_ = target_dB;
+    mixer_ramp_step_ = 0;
+    mixer_ramp_next_ms_ = mixer_now_ms();
+    return true;
+}
+
+bool AlsaSink::step_mixer_ramp_() {
+    if (!mixer_ramping_) {
+        return true;
+    }
+    ++mixer_ramp_step_;
+    const double progress = static_cast<double>(mixer_ramp_step_) / MIXER_RAMP_STEPS;
+    const long dB = static_cast<long>(std::lround(
+        static_cast<double>(mixer_ramp_from_dB_) +
+        progress * (static_cast<double>(mixer_ramp_target_dB_) - mixer_ramp_from_dB_)));
+    if (mixer_ramp_step_ >= MIXER_RAMP_STEPS) {
+        mixer_ramping_ = false;
+        return write_mixer_dB_(mixer_ramp_target_dB_);
+    }
+    mixer_ramp_next_ms_ = mixer_now_ms() + MIXER_RAMP_STEP_MS;
+    return write_mixer_dB_(dB);
+}
+
+void AlsaSink::report_mixer_change_() {
+    if (mixer_elem_ == nullptr) {
+        return;
+    }
+    long dB = 0;
+    const bool have_dB =
+        snd_mixer_selem_get_playback_dB(mixer_elem_, SND_MIXER_SCHN_MONO, &dB) == 0;
+    int value = 0;
+    const bool have_switch =
+        mixer_has_switch_ &&
+        snd_mixer_selem_get_playback_switch(mixer_elem_, SND_MIXER_SCHN_MONO, &value) == 0;
+    const bool muted = have_switch && value == 0;
+    // Our own write stores its read-back, so any other value is a change made outside this
+    // process. A muted control reports its mute-level dB, which is not a volume change.
+    const bool dB_changed = have_dB && !muted && dB != mixer_reported_dB_;
+    const bool mute_changed = have_switch && muted != mixer_reported_muted_;
+    if (!dB_changed && !mute_changed) {
+        return;
+    }
+    if (have_dB && !muted) {
+        mixer_reported_dB_ = dB;
+    }
+    if (have_switch) {
+        mixer_reported_muted_ = muted;
+    }
+
+    if (have_dB && !muted) {
+        volume_ = volume_for_mixer_dB(mixer_dB_min_, mixer_dB_max_, dB);
+    }
+    muted_ = muted;
+    // A control whose floor is not silent reports volume 0 here; this is what makes it silent.
+    update_volume_multiplier_();
+    fprintf(stderr, "ALSA mixer '%s' changed to %u%%%s\n", alsa_mixer_spec_.c_str(),
+            static_cast<unsigned>(volume_), muted ? " (muted)" : "");
+    if (on_local_volume_changed) {
+        on_local_volume_changed(volume_, muted);
+    }
+}
+
+void AlsaSink::poll_mixer_() {
+    if (mixer_ == nullptr) {
+        return;
+    }
+    if (mixer_ramping_ && mixer_now_ms() >= mixer_ramp_next_ms_) {
+        if (!step_mixer_ramp_()) {
+            fprintf(stderr, "Warning: ALSA mixer '%s' stopped taking the volume ramp\n",
+                    alsa_mixer_spec_.c_str());
+            mixer_ramping_ = false;
+        }
+    }
+
+    // poll() with a zero timeout, so a tick never blocks; handle_events() only runs when a
+    // descriptor is readable, which is what keeps it from blocking on the control handle.
+    const int count = snd_mixer_poll_descriptors_count(mixer_);
+    if (count <= 0) {
+        return;
+    }
+    std::array<struct pollfd, 8> pfds{};
+    const unsigned int space =
+        std::min<unsigned int>(static_cast<unsigned int>(count), pfds.size());
+    if (snd_mixer_poll_descriptors(mixer_, pfds.data(), space) <= 0) {
+        return;
+    }
+    if (::poll(pfds.data(), space, 0) <= 0) {
+        return;
+    }
+    // Read the element after draining rather than trusting the event count: the callback chain
+    // may report no event for a change, and the read is cheap and echo-suppressed anyway.
+    snd_mixer_handle_events(mixer_);
+    report_mixer_change_();
+}
+
+void AlsaSink::poll() {
+    poll_mixer_();
+}
+
 snd_mixer_elem_t* AlsaSink::get_alsa_mixer_elem(const std::string& mixer_spec,
                                                 snd_mixer_t** handle) {
     // Parse mixer specification in format "card:control"
@@ -605,23 +828,16 @@ bool AlsaSink::set_alsa_volume(const std::string& mixer_spec, uint8_t volume) {
         return false;
     }
 
-    // Set volume (convert 0-100 to ALSA dB range)
+    // Set volume (convert 0-100 to ALSA dB range on the spec's curve)
     long alsa_min, alsa_max;
     snd_mixer_selem_get_playback_dB_range(elem, &alsa_min, &alsa_max);
     alsa_debug_print("[ALSA DEBUG] dB range: %ld to %ld\n", alsa_min, alsa_max);
 
-    // Use the same formula as get_alsa_volume but in reverse
-    double _vol = static_cast<double>(volume) / 100.0;
-    if (alsa_min != SND_CTL_TLV_DB_GAIN_MUTE)
-    {
-        double min_norm = pow(10, (alsa_min - alsa_max) / 6000.0);
-        _vol = _vol * (1 - min_norm) + min_norm;
-    }
-    double alsa_volume = 6000.0 * log10(_vol) + alsa_max;
+    const long alsa_volume = mixer_dB_for_volume(alsa_min, alsa_max, volume);
 
-    alsa_debug_print("[ALSA DEBUG] Target volume %.2f -> dB value: %.1f\n", _vol, alsa_volume);
+    alsa_debug_print("[ALSA DEBUG] Target volume %d%% -> dB value: %ld\n", volume, alsa_volume);
 
-    if (snd_mixer_selem_set_playback_dB_all(elem, static_cast<long>(alsa_volume), 0) < 0) {
+    if (snd_mixer_selem_set_playback_dB_all(elem, alsa_volume, 0) < 0) {
         fprintf(stderr, "Warning: setting ALSA mixer '%s' volume failed: %s\n",
                 mixer_spec.c_str(), snd_strerror(errno));
         snd_mixer_close(handle);
@@ -652,13 +868,7 @@ int AlsaSink::get_alsa_volume(const std::string& mixer_spec) {
     snd_mixer_selem_get_playback_dB_range(elem, &alsa_min, &alsa_max);
     snd_mixer_selem_get_playback_dB(elem, SND_MIXER_SCHN_MONO, &alsa_volume);
 
-    double _vol = pow(10, (alsa_volume - alsa_max) / 6000.0);
-    if (alsa_min != SND_CTL_TLV_DB_GAIN_MUTE)
-    {
-        double min_norm = pow(10, (alsa_min - alsa_max) / 6000.0);
-        _vol = (_vol - min_norm) / (1 - min_norm);
-    }
-    int volume = static_cast<int>(_vol * 100);
+    const int volume = volume_for_mixer_dB(alsa_min, alsa_max, alsa_volume);
     snd_mixer_close(handle);
     return volume;
 }

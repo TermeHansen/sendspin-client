@@ -722,9 +722,23 @@ int main(int argc, char* argv[]) {
         bool is_network_ready() override { return true; }
     };
 
+    // Last values pushed into the sink, so the periodic sync below only acts on a real change.
+    uint8_t last_volume = player.get_volume();
+    bool last_muted = player.get_muted();
+
     BasicPlayerListener player_listener(audio_sink, player, audio_device, idle_timeout_s);
     audio_sink.on_frames_played = [&player](uint32_t frames, int64_t timestamp) {
         player.notify_audio_played(frames, timestamp);
+    };
+    // A hardware mixer turned by hand reaches the server through the player's own state, so a
+    // controller keeps showing the real level. The sink already applied it; this only reports.
+    // last_volume/last_muted move with it, so the periodic sync does not write the value back.
+    audio_sink.on_local_volume_changed = [&player, &last_volume, &last_muted](uint8_t volume,
+                                                                             bool muted) {
+        player.update_volume(volume);
+        player.update_muted(muted);
+        last_volume = volume;
+        last_muted = muted;
     };
     BasicMetadataListener metadata_listener;
     BasicClientListener client_listener;
@@ -801,11 +815,11 @@ int main(int argc, char* argv[]) {
 
     // Main loop
     int tick = 0;
-    uint8_t last_volume = player.get_volume();
-    bool last_muted = player.get_muted();
     while (running.load()) {
         client.loop();
         reconnect.tick(client);
+        // Watch the hardware mixer for a change made outside this process, and step any ramp.
+        audio_sink.poll();
         // Sync audio sink volume periodically (catches all volume change sources)
         if (++tick % 25 == 0) {
             uint8_t current_volume = player.get_volume();

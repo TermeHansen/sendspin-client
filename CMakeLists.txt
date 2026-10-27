@@ -126,4 +126,11 @@ if(BUILD_TESTING)
         COMMAND reconnect_test $<TARGET_FILE:sendspin-client>
     )
     set_tests_properties(reconnect PROPERTIES TIMEOUT 180)
+
+    # The volume-to-dB curve is pure math; compiled against the sink source so it needs no audio
+    # device. ALSA is the only dependency, already required by the build.
+    add_executable(mixer_curve_test tests/mixer_curve_test.cpp src/common/alsa_sink.cpp)
+    target_include_directories(mixer_curve_test PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+    target_link_libraries(mixer_curve_test PRIVATE ALSA::ALSA)
+    add_test(NAME mixer_curve COMMAND mixer_curve_test)
 endif()

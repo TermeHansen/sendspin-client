@@ -26,6 +26,13 @@
 
 namespace sendspin {
 
+/// @brief Map a 0-100 volume onto a hardware mixer's dB range on the spec's curve,
+/// amplitude = (v/100)^1.5, i.e. 30*log10(v/100) dB below max. Clamped to the control's floor.
+long mixer_dB_for_volume(long min, long max, uint8_t volume);
+
+/// @brief The inverse of mixer_dB_for_volume(): the 0-100 volume a mixer dB reading stands for.
+uint8_t volume_for_mixer_dB(long min, long max, long dB);
+
 /// @brief Install a quiet ALSA error handler for the process.
 ///
 /// ALSA prints one "ALSA lib ..." line per PCM name a device scan probes that the hardware
@@ -112,11 +119,43 @@ public:
     /// @brief Callback for timing feedback. Wire to client.notify_audio_played().
     std::function<void(uint32_t frames, int64_t timestamp)> on_frames_played;
 
+    /// @brief Reports a level changed outside the sink, e.g. through a hardware mixer or a
+    /// hardware knob. Fired from poll_mixer() on the caller's thread; a sink with no mixer
+    /// never calls it.
+    std::function<void(uint8_t volume, bool muted)> on_local_volume_changed;
+
+    /// @brief Watch the hardware mixer for changes made outside this process and report them.
+    /// Also advances a pending volume ramp. Call from the main loop; cheap when idle.
+    void poll();
+
 private:
     /// @brief Helper to parse "card:control" and open the mixer element.
     /// @return snd_mixer_elem_t* on success, nullptr on failure (handle closed again).
     static snd_mixer_elem_t* get_alsa_mixer_elem(const std::string& mixer_spec,
                                                  snd_mixer_t** handle);
+
+    /// @brief Open the persistent mixer handle and element; false when the spec has no usable
+    /// control. Called from set_alsa_mixer_spec().
+    bool mixer_open_();
+    /// @brief Close the persistent mixer handle. Idempotent.
+    void mixer_close_();
+    /// @brief Record the control's current dB and switch as our own, so a later event reads as
+    /// an echo of our own write rather than a change made outside this process.
+    void sync_mixer_reported_();
+    /// @brief Write dB to the persistent element, recording the read-back as our own value.
+    /// @return false when there is no control, or ALSA refused the write.
+    bool write_mixer_dB_(long dB);
+    /// @brief Begin a short stepped write toward target_dB; false when the first step failed.
+    bool start_mixer_ramp_(long target_dB);
+    /// @brief Write one ramp step; false when refused, which abandons the ramp.
+    bool step_mixer_ramp_();
+    /// @brief Record the mixer's current volume and mute, unless it echoes our own write.
+    void report_mixer_change_();
+    /// @brief Step any ramp and handle a pending control event. Main-loop only.
+    void poll_mixer_();
+    /// @brief Q32 software gain to pair with the mixer: unity when it carries the level, 0 when
+    /// silencing, and the software curve when there is no mixer.
+    uint64_t software_gain_() const;
 
     /// @brief Map a user-facing device selection to an ALSA PCM name.
     /// @param raw Empty, "-1", a plain card number or a full device string.
@@ -172,6 +211,26 @@ private:
     std::string alsa_mixer_spec_;
     void update_volume_multiplier_();
     static void apply_volume_(uint8_t* data, size_t len, uint8_t bytes_per_sample, uint64_t scale);
+
+    // The persistent mixer handle and element; both null when no usable control was opened.
+    // Touched only from the main loop after set_alsa_mixer_spec(), so no lock guards them.
+    snd_mixer_t* mixer_{nullptr};
+    snd_mixer_elem_t* mixer_elem_{nullptr};
+    // The control's playback dB range; valid only while mixer_elem_ is set.
+    long mixer_dB_min_{0};
+    long mixer_dB_max_{0};
+    // True when the control has a playback switch, so mute is hardware rather than software.
+    bool mixer_has_switch_{false};
+    // The switch state we last set or read; an event holding it is our own echo.
+    bool mixer_reported_muted_{false};
+    // dB the control was last set to by us or read back; an event holding it is our own echo.
+    long mixer_reported_dB_{0};
+    // A stepped write in progress: where it started, where it ends, and how far along it is.
+    bool mixer_ramping_{false};
+    long mixer_ramp_from_dB_{0};
+    long mixer_ramp_target_dB_{0};
+    int mixer_ramp_step_{0};
+    int64_t mixer_ramp_next_ms_{0};
 };
 
 }  // namespace sendspin

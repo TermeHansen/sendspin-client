@@ -18,7 +18,7 @@ ANOTHER_KEY = "quoted value"
 |--------|------|---------|-------------|
 | `FRIENDLY_NAME` | string | "SendSpin Client" | Friendly name shown to other devices |
 | `AUDIO_DEVICE` | string | "default" | ALSA device string to use (`plughw:1,0`, `hw:0,0`, ...). A plain number N selects card N device 0 (`plughw:N,0`) for compatibility with older configs. |
-| `ALSA_MIXER_SPEC` | string | "" (empty) | ALSA mixer specification (format: "card:control") |
+| `ALSA_MIXER_SPEC` | string | "" (empty) | ALSA mixer specification (format: "card:control"). Drives that hardware control for volume and mute instead of scaling the stream in software; the value is mapped over the control's dB range on the spec's curve, and a change made outside the client (alsamixer, `amixer`, a hardware knob) is reported to the server. Volume 0 silences the stream even when the control's floor is not silent; a control that cannot be opened or set falls back to software gain. |
 | `IDLE_TIMEOUT` | integer | 0 (disabled) | Idle timeout in seconds before releasing the audio device |
 | `LIVENESS_TIMEOUT` | integer | 60 (library default) | Seconds of inbound silence before an established connection is dropped as dead (0 = disable) |
 | `RECONNECT_ON_LOSS` | boolean | true | Reconnect to `CONNECT_URL` after the liveness watchdog drops the connection. Outbound connections only; inbound (discovery) connections are left to their server. Backoff: 1 s doubling up to 30 s. |

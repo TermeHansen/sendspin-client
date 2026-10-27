@@ -28,6 +28,8 @@
 
 # ALSA mixer specification for hardware volume control
 # Format: "card:control" (e.g., "1:Digital" for card 1, Digital control)
+# Drives that control for volume and mute instead of scaling the stream in software. A change
+# made outside the client (alsamixer, amixer, a hardware knob) is reported to the server.
 # Leave empty to disable hardware volume control
 # Default: "" (empty)
 # ALSA_MIXER_SPEC = "1:Digital"
