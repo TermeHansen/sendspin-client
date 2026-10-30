@@ -269,7 +269,7 @@ static void print_usage(const char* prog) {
     fprintf(stderr, "  -L            List available audio devices and exit\n");
     fprintf(stderr, "  -d DEVICE     Select audio device by index (use -L to list devices)\n");
     fprintf(stderr, "  -m MIXER      Use ALSA hardware mixer for volume control (format: card:control, e.g., \"1:Digital\")\n");
-    fprintf(stderr, "                Curve from ALSA_MIXER_CURVE in the config: spec (default), linear, cubic\n");
+    fprintf(stderr, "                Curve from ALSA_MIXER_CURVE in the config: spec (default), cubic\n");
     fprintf(stderr, "  -c FILE       Use configuration file (default: /etc/sendspin-client/sendspin-client.conf)\n");
     fprintf(stderr, "  -t SECONDS    Idle timeout in seconds before releasing audio device (0 = disable, default)\n");
     fprintf(stderr, "  -a            Allow unpaired servers to play (default: off; they must pair first)\n");
@@ -348,7 +348,7 @@ int main(int argc, char* argv[]) {
     std::string audio_device;  // ALSA device string, card number, or empty for default
     bool list_devices = false;
     std::string alsa_mixer_spec;
-    std::string alsa_mixer_curve = "spec";  // ALSA_MIXER_CURVE: spec | linear | cubic
+    std::string alsa_mixer_curve = "spec";  // ALSA_MIXER_CURVE: spec | cubic
     std::string config_file;
     int idle_timeout_s = 0;
     int server_port_arg = -1;
@@ -510,14 +510,12 @@ int main(int argc, char* argv[]) {
     // falling back to the default at the point of use.
     MixerCurve mixer_curve = MixerCurve::kSpec;
     if (!parse_mixer_curve(alsa_mixer_curve, mixer_curve)) {
-        fprintf(stderr, "Warning: unknown ALSA_MIXER_CURVE '%s', using 'spec' (spec|linear|cubic)\n",
+        fprintf(stderr, "Warning: unknown ALSA_MIXER_CURVE '%s', using 'spec' (spec|cubic)\n",
                 alsa_mixer_curve.c_str());
         mixer_curve = MixerCurve::kSpec;
     }
     // Report the resolved name, not the raw config string, so a rejected value is visible.
-    const char* mixer_curve_name = mixer_curve == MixerCurve::kLinear  ? "linear"
-                                   : mixer_curve == MixerCurve::kCubic ? "cubic"
-                                                                       : "spec";
+    const char* mixer_curve_name = mixer_curve == MixerCurve::kCubic ? "cubic" : "spec";
 
     // --- STARTUP LOGGING BLOCK ---
     fprintf(stderr, "\n");

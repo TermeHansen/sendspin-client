@@ -29,11 +29,12 @@ namespace sendspin {
 /// @brief How a 0-100 volume maps onto a hardware mixer control's dB range.
 enum class MixerCurve {
     kSpec,    ///< The spec's perceived-loudness curve: amplitude (v/100)^1.5, 30*log10 dB.
-    kLinear,  ///< dB linear in volume, matching how alsamixer lays its scale out.
     kCubic,   ///< Amplitude (v/100)^3, the steeper curve Snapcast uses for hardware volume.
+              ///< Its inverse, 100*10^(dB/60), is alsamixer's slider position, so the two
+              ///< track each other on a control with more than 24 dB of range.
 };
 
-/// @brief Parse a curve name ("spec", "linear", "cubic"). @return false when unrecognized.
+/// @brief Parse a curve name ("spec", "cubic"). @return false when unrecognized.
 bool parse_mixer_curve(const std::string& name, MixerCurve& curve);
 
 /// @brief Map a 0-100 volume onto a hardware mixer's dB range on the given curve.

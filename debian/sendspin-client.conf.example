@@ -36,8 +36,8 @@
 
 # Curve mapping volume onto the mixer's dB range (only used when ALSA_MIXER_SPEC is set)
 # - spec (default): the spec's perceived-loudness curve, 30*log10(v/100) dB below max
-# - linear: dB linear in volume, matching how alsamixer lays its scale out
-# - cubic: amplitude (v/100)^3, the steeper curve Snapcast uses for hardware volume
+# - cubic: amplitude (v/100)^3, the steeper curve Snapcast uses for hardware volume.
+#   Its inverse is alsamixer's slider position, so the two track each other.
 # Default: "spec"
 # ALSA_MIXER_CURVE = "spec"
 

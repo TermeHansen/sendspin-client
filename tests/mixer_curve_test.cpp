@@ -64,20 +64,16 @@ int main() {
     // The cubic (Snapcast) curve is twice the spec slope in dB: -18.06 dB at 50 on a 60 dB range.
     check(mixer_dB_for_volume(MIN_DB, MAX_DB, 50, MixerCurve::kCubic) == -1806,
           "cubic follows the 60*log10 slope");
-
-    // The linear curve is dB linear in volume: -30 dB at 50 on a -60..0 range.
-    check(mixer_dB_for_volume(MIN_DB, MAX_DB, 50, MixerCurve::kLinear) == -3000,
-          "linear is dB linear in volume");
-    check(mixer_dB_for_volume(MIN_DB, MAX_DB, 25, MixerCurve::kLinear) == -1500,
-          "linear quarter point");
-    check(mixer_dB_for_volume(MIN_DB, MAX_DB, 100, MixerCurve::kLinear) == MAX_DB,
-          "linear full volume is the control max");
-    check(mixer_dB_for_volume(MIN_DB, MAX_DB, 0, MixerCurve::kLinear) == MIN_DB,
-          "linear zero volume is the control floor");
+    // alsamixer's slider position is 100*10^(dB/60) (alsa-utils volume_mapping.c), which is
+    // exactly the cubic curve's inverse: volume 25 stands at -36.12 dB, and 10 at -60 dB.
+    check(mixer_dB_for_volume(MIN_DB, MAX_DB, 25, MixerCurve::kCubic) == -3612,
+          "cubic lands where alsamixer puts 25%");
+    check(mixer_dB_for_volume(MIN_DB, MAX_DB, 10, MixerCurve::kCubic) == -6000,
+          "cubic lands where alsamixer puts 10%");
 
     // Every curve round-trips through its inverse, at volumes above where the steeper curves
     // would clamp to the floor (the cubic curve hits -60 dB by volume 10 on this range).
-    for (MixerCurve curve : {MixerCurve::kSpec, MixerCurve::kLinear, MixerCurve::kCubic}) {
+    for (MixerCurve curve : {MixerCurve::kSpec, MixerCurve::kCubic}) {
         for (uint8_t volume : {20, 25, 50, 75, 99, 100}) {
             const long dB = mixer_dB_for_volume(MIN_DB, MAX_DB, volume, curve);
             check(volume_for_mixer_dB(MIN_DB, MAX_DB, dB, curve) == volume,
@@ -87,9 +83,9 @@ int main() {
 
     MixerCurve parsed = MixerCurve::kCubic;
     check(parse_mixer_curve("spec", parsed) && parsed == MixerCurve::kSpec, "parses 'spec'");
-    check(parse_mixer_curve("linear", parsed) && parsed == MixerCurve::kLinear, "parses 'linear'");
     check(parse_mixer_curve("cubic", parsed) && parsed == MixerCurve::kCubic, "parses 'cubic'");
     check(!parse_mixer_curve("bogus", parsed), "rejects an unknown curve name");
+    check(!parse_mixer_curve("linear", parsed), "rejects the removed 'linear' curve");
 
     if (failures != 0) {
         std::fprintf(stderr, "%d check(s) failed\n", failures);
