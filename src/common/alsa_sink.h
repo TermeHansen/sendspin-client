@@ -136,6 +136,15 @@ public:
     /// @brief Callback for timing feedback. Wire to client.notify_audio_played().
     std::function<void(uint32_t frames, int64_t timestamp)> on_frames_played;
 
+    /// @brief Source of "now" for the timestamps reported through on_frames_played.
+    ///
+    /// The library compares that timestamp against its own clock, SendspinClient::now_us(),
+    /// which reads CLOCK_MONOTONIC_RAW on Linux. steady_clock is CLOCK_MONOTONIC, which a time
+    /// daemon slews, so the two drift apart and every reported playtime is offset by their
+    /// difference. Wire this to SendspinClient::now_us(); left unset it falls back to
+    /// steady_clock, which only agrees on a host whose clock is not being corrected.
+    std::function<int64_t()> clock_us;
+
     /// @brief Reports a level changed outside the sink, e.g. through a hardware mixer or a
     /// hardware knob. Fired from poll_mixer() on the caller's thread; a sink with no mixer
     /// never calls it.

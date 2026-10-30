@@ -751,6 +751,11 @@ int main(int argc, char* argv[]) {
     audio_sink.on_frames_played = [&player](uint32_t frames, int64_t timestamp) {
         player.notify_audio_played(frames, timestamp);
     };
+    // The player compares the timestamp above against its own clock, which reads
+    // CLOCK_MONOTONIC_RAW on Linux. steady_clock is CLOCK_MONOTONIC, which a time daemon
+    // slews, so stamping the sink with steady_clock leaves a growing offset that reads as a
+    // loss of sync. now_us() is the clock the library measures against.
+    audio_sink.clock_us = []() { return SendspinClient::now_us(); };
     // A hardware mixer turned by hand reaches the server through the player's own state, so a
     // controller keeps showing the real level. The sink already applied it; this only reports.
     // last_volume/last_muted move with it, so the periodic sync does not write the value back.

@@ -356,10 +356,12 @@ void AlsaSink::report_played_(uint32_t frames) {
         return;
     }
     // Finish time: when the last frame of this batch leaves the DAC. The PCM delay counts
-    // every queued frame (this batch included) in stream-rate frames.
-    const int64_t now_us = std::chrono::duration_cast<std::chrono::microseconds>(
-                               std::chrono::steady_clock::now().time_since_epoch())
-                               .count();
+    // every queued frame (this batch included) in stream-rate frames. The epoch must be the
+    // library's clock, or the offset between the two clocks reads as a sync error.
+    const int64_t now_us = clock_us ? clock_us()
+                                    : std::chrono::duration_cast<std::chrono::microseconds>(
+                                          std::chrono::steady_clock::now().time_since_epoch())
+                                          .count();
     const int64_t delay_us = static_cast<int64_t>(delay_frames) * 1000000LL / sample_rate_;
     this->on_frames_played(frames, now_us + delay_us);
 }
