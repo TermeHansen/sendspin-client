@@ -799,27 +799,23 @@ void AlsaSink::report_mixer_change_() {
     if (!dB_changed && !mute_changed) {
         return;
     }
-    if (have_dB && !muted) {
+
+    // An outside volume change is newer than any ramp in flight; without this the next poll
+    // would keep writing toward the ramp's older target and undo it. A mute-only change leaves
+    // the ramp alone, so muting mid-ramp still finishes at the level that was asked for.
+    if (dB_changed) {
         mixer_reported_dB_ = dB;
-    }
-    if (have_switch) {
-        mixer_reported_muted_ = muted;
-    }
-
-    // The level this event reports is newer than any ramp in flight; without this the next poll
-    // would keep writing toward the ramp's older target and undo the change.
-    mixer_ramping_ = false;
-
-    if (have_dB && !muted) {
         volume_ = volume_for_mixer_dB(mixer_dB_min_, mixer_dB_max_, dB, mixer_curve_);
         // An outside change read back is proof the control holds the level; a control that had
         // fallen back to software gain is used again.
         mixer_carries_volume_ = true;
+        mixer_ramping_ = false;
     }
     // Only a control with a switch can report a mute change. Without one, leave the mute where
     // it is: a control whose floor is not silent cannot express mute, so reading it here would
     // silently unmute a stream the user muted.
     if (have_switch) {
+        mixer_reported_muted_ = muted;
         muted_ = muted;
         mixer_carries_mute_ = true;
     }
@@ -841,6 +837,10 @@ void AlsaSink::poll_mixer_() {
             fprintf(stderr, "Warning: ALSA mixer '%s' stopped taking the volume ramp\n",
                     alsa_mixer_spec_.c_str());
             mixer_ramping_ = false;
+            // The failed step cleared the carry flag, so the level is the software gain's now.
+            // Without this the multiplier stays at the unity a running ramp uses, and the level
+            // sits wherever the control last accepted a write.
+            update_volume_multiplier_();
         }
     }
 
@@ -881,6 +881,10 @@ snd_mixer_elem_t* AlsaSink::get_alsa_mixer_elem(const std::string& mixer_spec,
     std::string control_name = mixer_spec.substr(colon_pos + 1);
     snd_mixer_selem_id_t* sid;
 
+    // Every failure below closes the handle. Clear the caller's pointer as well, or it keeps a
+    // dangling value that a later mixer_close_() would free a second time.
+    *handle = nullptr;
+
     // Open mixer
     if (snd_mixer_open(handle, 0) < 0) {
         return nullptr;
@@ -890,18 +894,21 @@ snd_mixer_elem_t* AlsaSink::get_alsa_mixer_elem(const std::string& mixer_spec,
     std::string card_name = "hw:" + card_str;
     if (snd_mixer_attach(*handle, card_name.c_str()) < 0) {
         snd_mixer_close(*handle);
+        *handle = nullptr;
         return nullptr;
     }
 
     // Register mixer
     if (snd_mixer_selem_register(*handle, nullptr, nullptr) < 0) {
         snd_mixer_close(*handle);
+        *handle = nullptr;
         return nullptr;
     }
 
     // Load mixer elements
     if (snd_mixer_load(*handle) < 0) {
         snd_mixer_close(*handle);
+        *handle = nullptr;
         return nullptr;
     }
 
@@ -914,6 +921,7 @@ snd_mixer_elem_t* AlsaSink::get_alsa_mixer_elem(const std::string& mixer_spec,
     snd_mixer_elem_t* elem = snd_mixer_find_selem(*handle, sid);
     if (!elem) {
         snd_mixer_close(*handle);
+        *handle = nullptr;
         return nullptr;
     }
 
