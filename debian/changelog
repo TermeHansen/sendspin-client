@@ -5,7 +5,9 @@ sendspin-client (0.5.3-1) unstable; urgency=medium
     matching config fields; no behavioural change the client relies on,
     and no application code change was needed.
   * Add ALSA_MIXER_CURVE to choose how volume maps onto a hardware mixer's
-    dB range: spec (default), linear, or cubic.
+    dB range: spec (default) or cubic. Also repair the dB floor of a control
+    that reports its mute step as the range minimum, which had left the cubic
+    curve's ramp inactive and the removed linear curve silent below 100%.
 
  -- TermeHansen <terme@hansen>  Mon, 27 Oct 2026 00:00:00 +0200
 

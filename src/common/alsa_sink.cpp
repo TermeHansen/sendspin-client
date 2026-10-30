@@ -385,7 +385,9 @@ void AlsaSink::set_volume(uint8_t volume) {
     // The mixer carries the level when it has the control; the software gain only ever covers
     // what the mixer cannot, so it is recomputed from both fields rather than forced to unity.
     if (mixer_elem_ != nullptr) {
-        start_mixer_ramp_(mixer_dB_for_volume(mixer_dB_min_, mixer_dB_max_, volume_, mixer_curve_));
+        // A refused write hands the level back to the software gain; the ramp reports success.
+        mixer_carries_volume_ =
+            start_mixer_ramp_(mixer_dB_for_volume(mixer_dB_min_, mixer_dB_max_, volume_, mixer_curve_));
     }
 
     update_volume_multiplier_();
@@ -396,7 +398,8 @@ void AlsaSink::set_muted(bool muted) {
 
     // A control without a switch leaves the mute to the software gain below.
     if (mixer_elem_ != nullptr && mixer_has_switch_) {
-        if (snd_mixer_selem_set_playback_switch_all(mixer_elem_, muted ? 0 : 1) >= 0) {
+        mixer_carries_mute_ = snd_mixer_selem_set_playback_switch_all(mixer_elem_, muted ? 0 : 1) >= 0;
+        if (mixer_carries_mute_) {
             mixer_reported_muted_ = muted;
         }
     }
@@ -424,14 +427,16 @@ uint64_t AlsaSink::software_gain_() const {
     if (volume_ == 0) {
         return 0;
     }
-    // The mixer owns the level when it has a control, so the PCM stays at unity and only a mute
-    // without a hardware switch falls back to gain 0.
-    if (mixer_elem_ != nullptr) {
-        return (muted_ && !mixer_has_switch_) ? 0 : Q32_ONE;
-    }
-    // Without a mixer, volume and mute both stay in software.
-    if (muted_) {
+    // Mute is the switch's when the mixer took it; otherwise the PCM gain silences. This covers
+    // a control with no switch as well as one whose switch write was refused.
+    if (muted_ && !mixer_carries_mute_) {
         return 0;
+    }
+    // The mixer owns the level when it took the write, so the PCM stays at unity. When it did
+    // not (no control, or a refused write), the software curve carries the level instead; a
+    // control that recovers sets the flag again on its next successful write.
+    if (mixer_carries_volume_) {
+        return Q32_ONE;
     }
     // Quadratic curve: (vol/100)^2 for perceptually uniform control.
     // Q32 multiplier = vol * vol * 2^32 / 10000
@@ -673,6 +678,11 @@ bool AlsaSink::mixer_open_() {
     // the real one so the curves do not collapse onto it.
     resolve_playback_dB_range(mixer_elem_, mixer_dB_min_, mixer_dB_max_);
     mixer_has_switch_ = snd_mixer_selem_has_playback_switch(mixer_elem_) != 0;
+    // Assume the control takes the level until a write says otherwise: starting at unity gain
+    // keeps the software path from scaling a level the mixer is already carrying. A write that
+    // fails clears the flag, so a control that refuses everything falls back on first use.
+    mixer_carries_volume_ = true;
+    mixer_carries_mute_ = mixer_has_switch_;
     sync_mixer_reported_();
     return true;
 }
@@ -684,6 +694,8 @@ void AlsaSink::mixer_close_() {
     mixer_ = nullptr;
     mixer_elem_ = nullptr;
     mixer_ramping_ = false;
+    mixer_carries_volume_ = false;
+    mixer_carries_mute_ = false;
 }
 
 void AlsaSink::sync_mixer_reported_() {
@@ -703,11 +715,16 @@ void AlsaSink::sync_mixer_reported_() {
 
 bool AlsaSink::write_mixer_dB_(long dB) {
     if (mixer_elem_ == nullptr) {
+        mixer_carries_volume_ = false;
         return false;
     }
     if (snd_mixer_selem_set_playback_dB_all(mixer_elem_, dB, 0) < 0) {
+        // A refused write hands the level to the software gain; recording it here covers a
+        // failure in the middle of a ramp, not just the immediate write.
+        mixer_carries_volume_ = false;
         return false;
     }
+    mixer_carries_volume_ = true;
     // Store the read-back, not the request: ALSA rounds to the control's step, and the rounded
     // value is what the next event reports. Recording the request would make that echo look like
     // a change made outside this process.
@@ -724,15 +741,22 @@ bool AlsaSink::start_mixer_ramp_(long target_dB) {
     if (mixer_elem_ == nullptr) {
         return false;
     }
-    // A move of one step or less is not worth a ramp; write it now.
+    // A move of one step or less is not worth a ramp; write it now. Any ramp still in flight is
+    // abandoned, or the next poll would resume writing toward its older target and overwrite
+    // this newer level.
     const long distance = std::abs(target_dB - mixer_reported_dB_);
     const long step =
         std::max<long>(1, std::abs(mixer_dB_max_ - mixer_dB_min_) / MIXER_RAMP_STEPS);
     if (distance <= step) {
+        mixer_ramping_ = false;
         return write_mixer_dB_(target_dB);
     }
     mixer_ramping_ = true;
-    mixer_ramp_from_dB_ = mixer_reported_dB_;
+    // Start from where the control actually stands. On a mute-at-minimum control that is the
+    // mute sentinel, well below the repaired floor, so an unclamped start would leave every
+    // intermediate step pinned at the mute level and then jump to the target. The reported
+    // value itself is left alone, since it is what recognizes an echoed event.
+    mixer_ramp_from_dB_ = std::clamp(mixer_reported_dB_, mixer_dB_min_, mixer_dB_max_);
     mixer_ramp_target_dB_ = target_dB;
     mixer_ramp_step_ = 0;
     mixer_ramp_next_ms_ = mixer_now_ms();
@@ -782,16 +806,29 @@ void AlsaSink::report_mixer_change_() {
         mixer_reported_muted_ = muted;
     }
 
+    // The level this event reports is newer than any ramp in flight; without this the next poll
+    // would keep writing toward the ramp's older target and undo the change.
+    mixer_ramping_ = false;
+
     if (have_dB && !muted) {
         volume_ = volume_for_mixer_dB(mixer_dB_min_, mixer_dB_max_, dB, mixer_curve_);
+        // An outside change read back is proof the control holds the level; a control that had
+        // fallen back to software gain is used again.
+        mixer_carries_volume_ = true;
     }
-    muted_ = muted;
+    // Only a control with a switch can report a mute change. Without one, leave the mute where
+    // it is: a control whose floor is not silent cannot express mute, so reading it here would
+    // silently unmute a stream the user muted.
+    if (have_switch) {
+        muted_ = muted;
+        mixer_carries_mute_ = true;
+    }
     // A control whose floor is not silent reports volume 0 here; this is what makes it silent.
     update_volume_multiplier_();
     fprintf(stderr, "ALSA mixer '%s' changed to %u%%%s\n", alsa_mixer_spec_.c_str(),
-            static_cast<unsigned>(volume_), muted ? " (muted)" : "");
+            static_cast<unsigned>(volume_), muted_ ? " (muted)" : "");
     if (on_local_volume_changed) {
-        on_local_volume_changed(volume_, muted);
+        on_local_volume_changed(volume_, muted_);
     }
 }
 

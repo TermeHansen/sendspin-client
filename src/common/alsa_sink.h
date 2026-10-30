@@ -240,6 +240,14 @@ private:
     long mixer_dB_max_{0};
     // True when the control has a playback switch, so mute is hardware rather than software.
     bool mixer_has_switch_{false};
+    // True while the hardware control is carrying the level. A refused volume write clears it,
+    // handing the level to the software gain; a write that succeeds sets it again, so a control
+    // that recovers is used again. Tracked apart from the mute so a failed switch write does not
+    // also drop the level into software, which would scale it twice.
+    bool mixer_carries_volume_{false};
+    // True while the hardware switch is carrying the mute. Only meaningful with a switch; a
+    // control without one, or one whose switch write was refused, leaves the mute to software.
+    bool mixer_carries_mute_{false};
     // The switch state we last set or read; an event holding it is our own echo.
     bool mixer_reported_muted_{false};
     // dB the control was last set to by us or read back; an event holding it is our own echo.
