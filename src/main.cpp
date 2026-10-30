@@ -269,6 +269,7 @@ static void print_usage(const char* prog) {
     fprintf(stderr, "  -L            List available audio devices and exit\n");
     fprintf(stderr, "  -d DEVICE     Select audio device by index (use -L to list devices)\n");
     fprintf(stderr, "  -m MIXER      Use ALSA hardware mixer for volume control (format: card:control, e.g., \"1:Digital\")\n");
+    fprintf(stderr, "                Curve from ALSA_MIXER_CURVE in the config: spec (default), cubic\n");
     fprintf(stderr, "  -c FILE       Use configuration file (default: /etc/sendspin-client/sendspin-client.conf)\n");
     fprintf(stderr, "  -t SECONDS    Idle timeout in seconds before releasing audio device (0 = disable, default)\n");
     fprintf(stderr, "  -a            Allow unpaired servers to play (default: off; they must pair first)\n");
@@ -347,6 +348,7 @@ int main(int argc, char* argv[]) {
     std::string audio_device;  // ALSA device string, card number, or empty for default
     bool list_devices = false;
     std::string alsa_mixer_spec;
+    std::string alsa_mixer_curve = "spec";  // ALSA_MIXER_CURVE: spec | cubic
     std::string config_file;
     int idle_timeout_s = 0;
     int server_port_arg = -1;
@@ -435,6 +437,10 @@ int main(int argc, char* argv[]) {
                 alsa_mixer_spec = config_parser.get_string("ALSA_MIXER_SPEC");
             }
 
+            if (config_parser.has_key("ALSA_MIXER_CURVE")) {
+                alsa_mixer_curve = config_parser.get_string("ALSA_MIXER_CURVE", "spec");
+            }
+
             if (idle_timeout_s == 0 && config_parser.has_key("IDLE_TIMEOUT")) {
                 idle_timeout_s = config_parser.get_int("IDLE_TIMEOUT", 0);
             }
@@ -500,6 +506,17 @@ int main(int argc, char* argv[]) {
         server_port = static_cast<uint16_t>(server_port_arg);
     }
 
+    // Resolve the mixer curve name once, so an unknown value warns here rather than silently
+    // falling back to the default at the point of use.
+    MixerCurve mixer_curve = MixerCurve::kSpec;
+    if (!parse_mixer_curve(alsa_mixer_curve, mixer_curve)) {
+        fprintf(stderr, "Warning: unknown ALSA_MIXER_CURVE '%s', using 'spec' (spec|cubic)\n",
+                alsa_mixer_curve.c_str());
+        mixer_curve = MixerCurve::kSpec;
+    }
+    // Report the resolved name, not the raw config string, so a rejected value is visible.
+    const char* mixer_curve_name = mixer_curve == MixerCurve::kCubic ? "cubic" : "spec";
+
     // --- STARTUP LOGGING BLOCK ---
     fprintf(stderr, "\n");
     fprintf(stderr, "=================================================================\n");
@@ -511,6 +528,9 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "  Friendly Name : %s\n", friendly_name.c_str());
     fprintf(stderr, "  Audio Device  : %s\n", audio_device.empty() ? "default" : audio_device.c_str());
     fprintf(stderr, "  ALSA Mixer    : %s\n", alsa_mixer_spec.empty() ? "None" : alsa_mixer_spec.c_str());
+    if (!alsa_mixer_spec.empty()) {
+        fprintf(stderr, "  Mixer Curve   : %s\n", mixer_curve_name);
+    }
     fprintf(stderr, "  Connect URL   : %s\n", connect_url.empty() ? "Listen Mode (Server)" : connect_url.c_str());
     fprintf(stderr, "  Idle Timeout  : %s\n", idle_timeout_s == 0 ? "inaktiv" : (std::to_string(idle_timeout_s) + " seconds").c_str());
     fprintf(stderr, "  Liveness      : %s\n", liveness_timeout_s < 0 ? "default (60 s)" : (liveness_timeout_s == 0 ? "disabled" : (std::to_string(liveness_timeout_s) + " seconds").c_str()));
@@ -577,10 +597,11 @@ int main(int argc, char* argv[]) {
     // Create audio output and client
     AlsaSink audio_sink;
     if (!alsa_mixer_spec.empty()) {
+        audio_sink.set_mixer_curve(mixer_curve);
         audio_sink.set_alsa_mixer_spec(alsa_mixer_spec);
 
         // Try to read and display current hardware volume
-        int current_volume = AlsaSink::get_alsa_volume(alsa_mixer_spec);
+        int current_volume = AlsaSink::get_alsa_volume(alsa_mixer_spec, mixer_curve);
         if (current_volume >= 0) {
             fprintf(stderr, "ALSA mixer '%s' current volume: %d%%\n", alsa_mixer_spec.c_str(), current_volume);
         }
@@ -642,7 +663,7 @@ int main(int argc, char* argv[]) {
     
     // Set initial volume and mute to match hardware mixer if using ALSA control
     if (!alsa_mixer_spec.empty()) {
-        int current_volume = AlsaSink::get_alsa_volume(alsa_mixer_spec);
+        int current_volume = AlsaSink::get_alsa_volume(alsa_mixer_spec, mixer_curve);
         if (current_volume >= 0) {
             player.update_volume(static_cast<uint8_t>(current_volume));
         }
@@ -722,9 +743,28 @@ int main(int argc, char* argv[]) {
         bool is_network_ready() override { return true; }
     };
 
+    // Last values pushed into the sink, so the periodic sync below only acts on a real change.
+    uint8_t last_volume = player.get_volume();
+    bool last_muted = player.get_muted();
+
     BasicPlayerListener player_listener(audio_sink, player, audio_device, idle_timeout_s);
     audio_sink.on_frames_played = [&player](uint32_t frames, int64_t timestamp) {
         player.notify_audio_played(frames, timestamp);
+    };
+    // The player compares the timestamp above against its own clock, which reads
+    // CLOCK_MONOTONIC_RAW on Linux. steady_clock is CLOCK_MONOTONIC, which a time daemon
+    // slews, so stamping the sink with steady_clock leaves a growing offset that reads as a
+    // loss of sync. now_us() is the clock the library measures against.
+    audio_sink.clock_us = []() { return SendspinClient::now_us(); };
+    // A hardware mixer turned by hand reaches the server through the player's own state, so a
+    // controller keeps showing the real level. The sink already applied it; this only reports.
+    // last_volume/last_muted move with it, so the periodic sync does not write the value back.
+    audio_sink.on_local_volume_changed = [&player, &last_volume, &last_muted](uint8_t volume,
+                                                                             bool muted) {
+        player.update_volume(volume);
+        player.update_muted(muted);
+        last_volume = volume;
+        last_muted = muted;
     };
     BasicMetadataListener metadata_listener;
     BasicClientListener client_listener;
@@ -801,11 +841,11 @@ int main(int argc, char* argv[]) {
 
     // Main loop
     int tick = 0;
-    uint8_t last_volume = player.get_volume();
-    bool last_muted = player.get_muted();
     while (running.load()) {
         client.loop();
         reconnect.tick(client);
+        // Watch the hardware mixer for a change made outside this process, and step any ramp.
+        audio_sink.poll();
         // Sync audio sink volume periodically (catches all volume change sources)
         if (++tick % 25 == 0) {
             uint8_t current_volume = player.get_volume();

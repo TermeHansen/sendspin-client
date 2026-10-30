@@ -28,9 +28,18 @@
 
 # ALSA mixer specification for hardware volume control
 # Format: "card:control" (e.g., "1:Digital" for card 1, Digital control)
+# Drives that control for volume and mute instead of scaling the stream in software. A change
+# made outside the client (alsamixer, amixer, a hardware knob) is reported to the server.
 # Leave empty to disable hardware volume control
 # Default: "" (empty)
 # ALSA_MIXER_SPEC = "1:Digital"
+
+# Curve mapping volume onto the mixer's dB range (only used when ALSA_MIXER_SPEC is set)
+# - spec (default): the spec's perceived-loudness curve, 30*log10(v/100) dB below max
+# - cubic: amplitude (v/100)^3, the steeper curve Snapcast uses for hardware volume.
+#   Its inverse is alsamixer's slider position, so the two track each other.
+# Default: "spec"
+# ALSA_MIXER_CURVE = "spec"
 
 # Idle timeout in seconds before releasing the audio device
 # This allows other applications to use the audio hardware when SendSpin is not playing.
