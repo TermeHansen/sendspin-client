@@ -1,3 +1,15 @@
+sendspin-client (0.5.4-1) unstable; urgency=medium
+
+  * Updated sendspin-cpp from 90cbd808 (v0.9.5-2) to 3a6e3107 (v0.9.5-9).
+    The player no longer deadlocks when a stale stream/start acknowledgement
+    lands mid-wait (#212), and outbound JSON is serialized straight into the
+    Noise send buffer (#222). The deprecated pairing_window_supported config
+    field is removed (#216); the client never set it. The source role gains a
+    FLAC codec (#221), which the client does not use. No application code
+    change was needed.
+
+ -- TermeHansen <terme@hansen>  Mon, 02 Nov 2026 00:00:00 +0200
+
 sendspin-client (0.5.3-1) unstable; urgency=medium
 
   * Updated sendspin-cpp from v0.9.4 to 90cbd808 (v0.9.5-2). Adds
