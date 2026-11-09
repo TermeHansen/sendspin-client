@@ -359,9 +359,12 @@ struct NoiseInitiator {
     }
 
     /// Write msg1 carrying the psk_id/psk_category payload. Returns the raw Noise bytes.
-    std::vector<uint8_t> write_msg1(const std::string& psk_id, const std::string& psk_category) {
-        const std::string payload_json =
-            "{\"psk_id\":\"" + psk_id + "\",\"psk_category\":\"" + psk_category + "\"}";
+    std::vector<uint8_t> write_msg1(std::string_view psk_id, std::string_view psk_category) {
+        std::string payload_json{"{\"psk_id\":\""};
+        payload_json += psk_id;
+        payload_json += "\",\"psk_category\":\"";
+        payload_json += psk_category;
+        payload_json += "\"}";
         std::vector<uint8_t> out(4096);
         NoiseBuffer ob;
         noise_buffer_set_output(ob, out.data(), out.size());
