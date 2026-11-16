@@ -1,3 +1,24 @@
+sendspin-client (0.5.6-1) unstable; urgency=medium
+
+  * Updated sendspin-cpp from 7be2278 (v0.9.5-41) to a4a9b65 (v0.9.5-50),
+    nine commits: group/update and metadata text are now held inline in fixed
+    blocks and handed to consumers as string_view instead of copied std::string
+    (#256, #258, #260, #261), a non-conforming group_id is normalized to
+    base64url of its SHA-256 (#256), a late chunk is discarded undecoded only
+    when it is later than its own length so its playable remainder survives
+    (#243), and a burst's receive work is kept out of the periodic yield
+    windows (#265). The renames are the deprecated-with-removal-in-v0.11.0 set:
+    ServerMetadataStateObject -> TrackMetadata with on_metadata() ->
+    on_track_metadata(), GroupUpdateObject -> GroupState with on_group_update()
+    -> on_group_state(), ServerInformationObject -> ServerInformation, the
+    on_pairing_* callbacks to on_pairing_attempt()/on_paired()/
+    on_pairing_aborted(), on_display_pairing_code() -> on_pairing_code(), and
+    pairing_token() -> client_pairing_token(). The client used on_metadata()
+    and pairing_token() and now uses their replacements, and it drops the
+    metadata text fields it never displays via the new MetadataRoleConfig.
+
+ -- TermeHansen <terme@hansen>  Mon, 16 Nov 2026 00:00:00 +0200
+
 sendspin-client (0.5.5-1) unstable; urgency=medium
 
   * Updated sendspin-cpp from 3a6e3107 (v0.9.5-9) to 7be2278 (v0.9.5-41),

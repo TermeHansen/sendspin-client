@@ -59,6 +59,7 @@
 #include <fstream>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <sys/stat.h>
 #include <unistd.h>  // for access()
 #include <thread>
@@ -672,7 +673,10 @@ int main(int argc, char* argv[]) {
         player.update_muted(current_mute);
     }
     
-    auto& metadata = client.add_metadata();
+    // The listener below prints only the title and artist, so the other text fields are dropped
+    // at the source and cost no storage.
+    auto& metadata =
+        client.add_metadata({.album_artist = false, .album = false, .artwork_url = false});
 
     // --- Listener implementations ---
 
@@ -723,10 +727,11 @@ int main(int argc, char* argv[]) {
     };
 
     struct BasicMetadataListener : MetadataRoleListener {
-        void on_metadata(const ServerMetadataStateObject& md) override {
+        void on_track_metadata(const TrackMetadata& md) override {
             if (md.title.has_value()) {
-                fprintf(stderr, ">>> Metadata: %s - %s\n",
-                        md.artist.value_or("Unknown").c_str(), md.title->c_str());
+                const std::string_view artist = md.artist.value_or("Unknown");
+                fprintf(stderr, ">>> Metadata: %.*s - %.*s\n", static_cast<int>(artist.size()),
+                        artist.data(), static_cast<int>(md.title->size()), md.title->data());
             }
         }
     };
@@ -800,8 +805,8 @@ int main(int argc, char* argv[]) {
     fprintf(stderr, "Client ID: %s\n", client.client_id().c_str());
     // The pairing token carries the client identity and the Pairing PSK; a server operator
     // enters it to pair with this client. Stable for the lifetime of the PSK.
-    if (auto token = client.pairing_token()) {
-        fprintf(stderr, "Pairing token: %s\n", token->c_str());
+    if (const auto token = client.client_pairing_token()) {
+        fprintf(stderr, "Pairing token: %.*s\n", static_cast<int>(token->size()), token->data());
     }
     if (persistence_provider.save_failed()) {
         fprintf(stderr,
