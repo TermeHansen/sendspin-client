@@ -1,3 +1,64 @@
+sendspin-client (0.5.6-1) unstable; urgency=medium
+
+  * Updated sendspin-cpp from 7be2278 (v0.9.5-41) to a4a9b65 (v0.9.5-50),
+    nine commits: group/update and metadata text are now held inline in fixed
+    blocks and handed to consumers as string_view instead of copied std::string
+    (#256, #258, #260, #261), a non-conforming group_id is normalized to
+    base64url of its SHA-256 (#256), a late chunk is discarded undecoded only
+    when it is later than its own length so its playable remainder survives
+    (#243), and a burst's receive work is kept out of the periodic yield
+    windows (#265). The renames are the deprecated-with-removal-in-v0.11.0 set:
+    ServerMetadataStateObject -> TrackMetadata with on_metadata() ->
+    on_track_metadata(), GroupUpdateObject -> GroupState with on_group_update()
+    -> on_group_state(), ServerInformationObject -> ServerInformation, the
+    on_pairing_* callbacks to on_pairing_attempt()/on_paired()/
+    on_pairing_aborted(), on_display_pairing_code() -> on_pairing_code(), and
+    pairing_token() -> client_pairing_token(). The client used on_metadata()
+    and pairing_token() and now uses their replacements, and it drops the
+    metadata text fields it never displays via the new MetadataRoleConfig.
+
+ -- TermeHansen <terme@hansen>  Mon, 16 Nov 2026 00:00:00 +0200
+
+sendspin-client (0.5.5-1) unstable; urgency=medium
+
+  * Updated sendspin-cpp from 3a6e3107 (v0.9.5-9) to 7be2278 (v0.9.5-41),
+    32 commits: the allocation-model series (#225-#255) removes most heap
+    allocations on the connection, pairing and first-frame paths, and
+    fixes the reject reason when unpaired access cannot make an
+    activation admissible (#251). API changes: the
+    on_trust_changed() callback and ConnectionTrust type are removed in
+    favour of is_paired() (#234), and client/hello can advertise
+    application-specific roles (#218). The client used none of
+    the removed surface; the reconnect test's msg1 helper now takes
+    string_view because SENTINEL_PSK_ID became a compile-time constant.
+
+ -- TermeHansen <terme@hansen>  Sun, 08 Nov 2026 00:00:00 +0200
+
+sendspin-client (0.5.4-1) unstable; urgency=medium
+
+  * Updated sendspin-cpp from 90cbd808 (v0.9.5-2) to 3a6e3107 (v0.9.5-9).
+    The player no longer deadlocks when a stale stream/start acknowledgement
+    lands mid-wait (#212), and outbound JSON is serialized straight into the
+    Noise send buffer (#222). The deprecated pairing_window_supported config
+    field is removed (#216); the client never set it. The source role gains a
+    FLAC codec (#221), which the client does not use. No application code
+    change was needed.
+
+ -- TermeHansen <terme@hansen>  Mon, 02 Nov 2026 00:00:00 +0200
+
+sendspin-client (0.5.3-1) unstable; urgency=medium
+
+  * Updated sendspin-cpp from v0.9.4 to 90cbd808 (v0.9.5-2). Adds
+    set_volume_adjustable()/set_mute_adjustable() on PlayerRole and the
+    matching config fields; no behavioural change the client relies on,
+    and no application code change was needed.
+  * Add ALSA_MIXER_CURVE to choose how volume maps onto a hardware mixer's
+    dB range: spec (default) or cubic. Also repair the dB floor of a control
+    that reports its mute step as the range minimum, which had left the cubic
+    curve's ramp inactive and the removed linear curve silent below 100%.
+
+ -- TermeHansen <terme@hansen>  Mon, 27 Oct 2026 00:00:00 +0200
+
 sendspin-client (0.5.2-1) unstable; urgency=medium
 
   * Updated sendspin-cpp from v0.9.3 to v0.9.4. Behavioural changes the
